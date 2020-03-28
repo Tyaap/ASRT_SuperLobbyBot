@@ -195,7 +195,7 @@ namespace SLB
 
         private static Task DiscordSocketClient_Log(LogMessage arg)
         {
-            Console.WriteLine(arg);
+            //Console.WriteLine(arg);
             return Task.CompletedTask;
         }
 

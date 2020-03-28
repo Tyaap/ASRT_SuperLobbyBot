@@ -65,7 +65,7 @@ namespace SLB
             // if tirst time, get logon details
             if (string.IsNullOrEmpty(user))
             {
-                Console.Write("Enter username: ");
+                Console.Write("Enter Steam username: ");
                 user = Console.ReadLine();
                 Console.Write("Enter password: ");
                 var key = new ConsoleKeyInfo('a', ConsoleKey.Backspace, false, false, false);
@@ -126,7 +126,8 @@ namespace SLB
 
             manager.Subscribe<SteamUserStats.NumberOfPlayersCallback>(OnNumberOfPlayers);
 
-            messageTimer = new Timer(OnTimerTick, null, MESSAGE_WAIT, -1);
+            // message update timer, to be started once logged in
+            messageTimer = new Timer(OnTimerTick, null, -1, -1);
 
             waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
 
@@ -184,17 +185,13 @@ namespace SLB
                 lobbyPlayerCount = -1;
                 lobbyInfos = new List<LobbyInfo>();
             }
-            /*else
-            {
-                message = "Bot is not logged into Steam!";
-            }
-            */
 
+            // send discord messages
             if (Discord.loggedIn)
             {
                 Discord.UpdateStatus(playerCount, lobbyPlayerCount, lobbyInfos).GetAwaiter().GetResult();
             }
-            // Reset the timer
+            // restart the timer
             messageTimer.Change(MESSAGE_WAIT, -1);
         }
 
@@ -284,6 +281,9 @@ namespace SLB
             Console.Write("Saving celliid file...");
             File.WriteAllText("cellid.txt", callback.CellID.ToString());
             Console.WriteLine("Done!");
+
+            // Start message timer
+            messageTimer.Change(MESSAGE_WAIT, -1);
         }
 
         static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
