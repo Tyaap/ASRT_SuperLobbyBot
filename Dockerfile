@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/core/sdk:3.1-buster
 WORKDIR /app
 
-# copy csproj and restore as distinct layers
+# copy csproj
 COPY *.csproj ./
 # copy code
 COPY *.cs ./
