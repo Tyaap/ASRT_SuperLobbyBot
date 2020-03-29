@@ -365,15 +365,19 @@ namespace SLB
                     difficulty = -1,
                 };
 
+                // name
                 lobby.Metadata.TryGetValue("name", out lobbyInfo.name);
+
+                // type
                 if (lobby.Metadata.TryGetValue("type", out string value) && int.TryParse(value, out lobbyInfo.type))
                 {
-                    lobbyInfo.type -= 1549;
-                    if (lobbyInfo.type > 2)
-                    {
-                        continue;
-                    }                  
+                    lobbyInfo.type -= 1549;              
                 } 
+                if (lobbyInfo.type > 2 || lobbyInfo.type < 0)
+                {
+                    continue;
+                }    
+
                 // Finer details
                 if (lobby.Metadata.TryGetValue("lobbydata", out value))
                 {

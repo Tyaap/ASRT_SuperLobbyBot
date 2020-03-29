@@ -131,50 +131,73 @@ namespace SLB
             foreach(var guild in guilds)
             {
                 // Set up the status channel in each guild
-                if (!currentStatusMessages.TryGetValue(guild.Id, out Tuple<RestTextChannel, List<RestUserMessage>> channelPessagePair))
+                if (!currentStatusMessages.TryGetValue(guild.Id, out Tuple<RestTextChannel, List<RestUserMessage>> channelMessagePair))
                 {
-                    // Find and delete old status channels
-                    var textChannels = await guild.GetTextChannelsAsync();
-                    foreach (var channel in textChannels)
-                    {
-                        if (channel.Name.EndsWith("-in-matchmaking"))
+                    Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
+                    try{    
+                        // Find and delete old status channels
+                        var textChannels = await guild.GetTextChannelsAsync();
+                        foreach (var channel in textChannels)
                         {
-                            await channel.DeleteAsync();
+                            if (channel.Name.EndsWith("-in-matchmaking"))
+                            {
+                                await channel.DeleteAsync();
+                            }
+                        }   
+                        // Create status channel
+                        var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", lobbyPlayerCount));
+                        List<RestUserMessage> statusMessages = new List<RestUserMessage>();
+                        // Allocate status messages
+                        for (int i = 0; i < ALLOCATED_MESSAGES; i++)
+                        {
+                            statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
                         }
-                    }   
-                    // Create status channel
-                    var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", lobbyPlayerCount));
-                    List<RestUserMessage> statusMessages = new List<RestUserMessage>();
-                    // Allocate status messages
-                    for (int i = 0; i < ALLOCATED_MESSAGES; i++)
-                    {
-                        statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
+                        // Store channel/message pair
+                        channelMessagePair = new Tuple<RestTextChannel, List<RestUserMessage>>(statusChannel, statusMessages);
+                        currentStatusMessages.Add(guild.Id, channelMessagePair);
+                        Console.WriteLine("Status channel setup complete!");
                     }
-                    // Store channel/message pair
-                    channelPessagePair = new Tuple<RestTextChannel, List<RestUserMessage>>(statusChannel, statusMessages);
-                    currentStatusMessages.Add(guild.Id, channelPessagePair);   
+                    catch(Exception e)
+                    {
+                        Console.WriteLine("Server setup failed!");
+                        Console.WriteLine(e);
+                    }
                 }
                 
                 // Set channel name
-                await channelPessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
+                try
+                {
+                    await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
+                }
+                catch(Exception e)
+                {
+                    Console.WriteLine("Failed to set status channel name on server {0} ({1})", guild.Name, guild.Id);
+                    Console.WriteLine(e);
+                }
+
 
                 // Send/update messages
-                for (int i = 0; i < messages.Count; i++)
+                int count = Math.Max(messages.Count, lastMessageCount);
+                for (int i = 0; i < count; i++)
                 {
-                    if (i < channelPessagePair.Item2.Count)
+                    try
                     {
-                        await channelPessagePair.Item2[i].ModifyAsync(m => {m.Content = messages[i]; m.Embed = embeds[i];});
+                        string message = i < messages.Count ? messages[i] : "** **";
+                        Embed embed = i < embeds.Count ? embeds[i] : null;
+
+                        if (i < channelMessagePair.Item2.Count)
+                        {
+                            await channelMessagePair.Item2[i].ModifyAsync(m => {m.Content = message; m.Embed = embed;});
+                        }
+                        else
+                        {
+                            channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed));
+                        }
                     }
-                    else
+                    catch (Exception e)
                     {
-                        channelPessagePair.Item2.Add(await channelPessagePair.Item1.SendMessageAsync(messages[i], embed: embeds[i]));
-                    }
-                }
-                if (messages.Count < lastMessageCount)
-                {
-                    for (int j = messages.Count; j < lastMessageCount; j++)
-                    {
-                        await channelPessagePair.Item2[j].ModifyAsync(m => {m.Content = "** **"; m.Embed = null;});
+                        Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);
+                        Console.WriteLine(e);
                     }
                 }
             }
