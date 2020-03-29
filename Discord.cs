@@ -20,7 +20,8 @@ namespace SLB
         static EventWaitHandle waitHandle;
         private static string token;
         public static bool loggedIn;
-        public static Dictionary<RestTextChannel, List<RestUserMessage>> currentStatusMessages;
+        // messages, organised by guild and channel
+        public static Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>> currentStatusMessages;
         public static int lastMessageCount;
 
         // message clock format
@@ -38,7 +39,7 @@ namespace SLB
                 .AddSingleton(commandService)
                 .BuildServiceProvider();
             waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
-
+            currentStatusMessages = new Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>>();
             if (File.Exists("token.txt"))
             {
                 token = File.ReadAllText("token.txt");
@@ -60,37 +61,8 @@ namespace SLB
         public static async Task UpdateStatus(int playerCount, int lobbyPlayerCount, List<LobbyInfo> lobbyInfos)
         {
             Console.WriteLine("Updating Discord status messages...");
-
-            // Create new status channels
-            if (currentStatusMessages == null)
-            {
-                currentStatusMessages = new Dictionary<RestTextChannel, List<RestUserMessage>>();
-                var guilds = await discordSocketClient.Rest.GetGuildsAsync();
-                foreach(var guild in guilds)
-                {
-                    // Find and delete old status channels
-                    var textChannels = await guild.GetTextChannelsAsync();
-                    foreach (var channel in textChannels)
-                    {
-                        if (channel.Name.EndsWith("-in-matchmaking"))
-                        {
-                            await channel.DeleteAsync();
-                        }
-                    }
-                    
-                    // Create the status channel
-                    var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", playerCount));
-                    List<RestUserMessage> statusMessages = new List<RestUserMessage>();
-                    // Allocate status messages
-                    for (int i = 0; i < ALLOCATED_MESSAGES; i++)
-                    {
-                        statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
-                    }
-                    // Store
-                    currentStatusMessages.Add(statusChannel, statusMessages);
-                }
-            }
-
+            
+            // Message storage
             List<string> messages = new List<string>();
             List<Embed> embeds = new List<Embed>();
 
@@ -101,7 +73,7 @@ namespace SLB
                 statusOverview += string.Format("\n\n**{0} people are playing S&ASRT.**", playerCount);
                 if (lobbyPlayerCount == 0)
                 {
-                    statusOverview += "\n**There are no lobbies!**";
+                    statusOverview += "\n**There are no matchmaking lobbies!**";
                 }
                 else if (lobbyPlayerCount == 1)
                 {
@@ -155,34 +127,54 @@ namespace SLB
                 embeds.Add(builder.Build());
             }
 
-
-            // Set channel names
-            string channelName = string.Format("{0}-in-matchmaking", lobbyPlayerCount);
-
-            foreach (var channel in currentStatusMessages.Keys)
+            var guilds = await discordSocketClient.Rest.GetGuildsAsync();
+            foreach(var guild in guilds)
             {
-                await channel.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
-            }
+                // Set up the status channel in each guild
+                if (!currentStatusMessages.TryGetValue(guild.Id, out Tuple<RestTextChannel, List<RestUserMessage>> channelPessagePair))
+                {
+                    // Find and delete old status channels
+                    var textChannels = await guild.GetTextChannelsAsync();
+                    foreach (var channel in textChannels)
+                    {
+                        if (channel.Name.EndsWith("-in-matchmaking"))
+                        {
+                            await channel.DeleteAsync();
+                        }
+                    }   
+                    // Create status channel
+                    var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", lobbyPlayerCount));
+                    List<RestUserMessage> statusMessages = new List<RestUserMessage>();
+                    // Allocate status messages
+                    for (int i = 0; i < ALLOCATED_MESSAGES; i++)
+                    {
+                        statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
+                    }
+                    // Store channel/message pair
+                    channelPessagePair = new Tuple<RestTextChannel, List<RestUserMessage>>(statusChannel, statusMessages);
+                    currentStatusMessages.Add(guild.Id, channelPessagePair);   
+                }
+                
+                // Set channel name
+                await channelPessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
 
-            // Send the messages to Discord.
-            foreach (var item in currentStatusMessages)
-            {   
+                // Send/update messages
                 for (int i = 0; i < messages.Count; i++)
                 {
-                    if (i < item.Value.Count)
+                    if (i < channelPessagePair.Item2.Count)
                     {
-                        await item.Value[i].ModifyAsync(m => {m.Content = messages[i]; m.Embed = embeds[i];});
+                        await channelPessagePair.Item2[i].ModifyAsync(m => {m.Content = messages[i]; m.Embed = embeds[i];});
                     }
                     else
                     {
-                        item.Value.Add(await item.Key.SendMessageAsync(messages[i], embed: embeds[i]));
+                        channelPessagePair.Item2.Add(await channelPessagePair.Item1.SendMessageAsync(messages[i], embed: embeds[i]));
                     }
                 }
                 if (messages.Count < lastMessageCount)
                 {
                     for (int j = messages.Count; j < lastMessageCount; j++)
                     {
-                        await item.Value[j].ModifyAsync(m => {m.Content = "** **"; m.Embed = null;});
+                        await channelPessagePair.Item2[j].ModifyAsync(m => {m.Content = "** **"; m.Embed = null;});
                     }
                 }
             }
@@ -201,7 +193,7 @@ namespace SLB
 
         private static Task DiscordSocketClient_Log(LogMessage arg)
         {
-            //Console.WriteLine(arg);
+            Console.WriteLine(arg);
             return Task.CompletedTask;
         }
 
