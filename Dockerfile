@@ -4,7 +4,7 @@ WORKDIR /app
 # copy csproj and restore as distinct layers
 COPY *.csproj ./
 # copy code
-copy *.cs ./
+COPY *.cs ./
 # copy nuget.config
 COPY *.config ./
 # copy local packages
@@ -16,4 +16,4 @@ RUN dotnet restore
 # build
 RUN dotnet publish -c Release -o out
 # run
-CMD dotnet out/SLB.dll
+CMD ASPNETCORE_URLS=http://*:$PORT dotnet out/SLB.dll

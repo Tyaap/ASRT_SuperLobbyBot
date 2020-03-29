@@ -100,7 +100,7 @@ namespace SLB
             // Create overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("__S&ASRT lobby status — {0}__", DateTime.Now.ToString(CLOCK_FORMAT));
+                string statusOverview = string.Format("__S&ASRT lobby status — {0} GMT__", DateTime.Now.ToString(CLOCK_FORMAT));
                 statusOverview += string.Format("\n\n**{0} people are playing S&ASRT.**", playerCount);
                 if (lobbyPlayerCount == 0)
                 {
