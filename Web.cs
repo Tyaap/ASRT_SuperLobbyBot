@@ -9,7 +9,7 @@ namespace SLB
     static class Web
     {
         // Regularly ping the web API
-        const string HOST_ADDRESS = "http://localhost:5000/"; // "http://super-lobby-bot.herokuapp.com:20/"
+        const string HOST_ADDRESS = "http://super-lobby-bot.herokuapp.com/"; // "http://localhost:5000/";
         const int PING_INTERVAL = 60000;
         static Timer pingTimer;
         static HttpClient client;

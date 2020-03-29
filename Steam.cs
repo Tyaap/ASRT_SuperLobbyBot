@@ -24,7 +24,6 @@ namespace SLB
 
         static string authCode, twoFactorAuth;
 
-        
         static int playerCount;
         static int lobbyPlayerCount;
         // lobbies info for status message
@@ -163,7 +162,7 @@ namespace SLB
                     new List<SteamMatchmaking.Lobby.Filter>() 
                     { 
                         new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
-                        new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
+                        new SteamMatchmaking.Lobby.SlotsAvailableFilter(-1),
                     }
                 );
                 completed = false;
@@ -370,7 +369,7 @@ namespace SLB
                 if (lobby.Metadata.TryGetValue("type", out string value) && int.TryParse(value, out lobbyInfo.type))
                 {
                     lobbyInfo.type -= 1549;
-                    if (lobbyInfo.type == 5)
+                    if (lobbyInfo.type > 2)
                     {
                         continue;
                     }                  

@@ -23,13 +23,11 @@ namespace SLB
         public static Dictionary<RestTextChannel, List<RestUserMessage>> currentStatusMessages;
         public static int lastMessageCount;
 
-        // status message channel name
-        const string CHANNEL_NAME = "transformed-lobbies";
         // message clock format
         const string CLOCK_FORMAT = "dd/MM/yy HH:mm";
 
         static readonly Color LOBBY_COLOUR = Color.Gold;
-        const int ALLOCATED_MESSAGES = 30;
+        const int ALLOCATED_MESSAGES = 10;
 
         public static void Run()
         {
@@ -74,14 +72,14 @@ namespace SLB
                     var textChannels = await guild.GetTextChannelsAsync();
                     foreach (var channel in textChannels)
                     {
-                        if (channel.Name == CHANNEL_NAME)
+                        if (channel.Name.EndsWith("-in-matchmaking"))
                         {
                             await channel.DeleteAsync();
                         }
                     }
                     
                     // Create the status channel
-                    var statusChannel = await guild.CreateTextChannelAsync(CHANNEL_NAME);
+                    var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", playerCount));
                     List<RestUserMessage> statusMessages = new List<RestUserMessage>();
                     // Allocate status messages
                     for (int i = 0; i < ALLOCATED_MESSAGES; i++)
@@ -107,11 +105,11 @@ namespace SLB
                 }
                 else if (lobbyPlayerCount == 1)
                 {
-                    statusOverview += "\n**1 player is in a lobby.**";
+                    statusOverview += "\n**1 player is in a matchmaking lobby.**";
                 }
                 else
                 {
-                    statusOverview += string.Format("\n**{0} players are in {1} {2}.**", lobbyPlayerCount, lobbyInfos.Count, lobbyInfos.Count > 1 ? "lobbies" : "lobby");;
+                    statusOverview += string.Format("\n**{0} players are in {1} matchmaking {2}.**", lobbyPlayerCount, lobbyInfos.Count, lobbyInfos.Count > 1 ? "lobbies" : "lobby");;
                 }
                 messages.Add(statusOverview);
                 embeds.Add(null);
@@ -155,6 +153,15 @@ namespace SLB
                 }
                 messages.Add("");
                 embeds.Add(builder.Build());
+            }
+
+
+            // Set channel names
+            string channelName = string.Format("{0}-in-matchmaking", lobbyPlayerCount);
+
+            foreach (var channel in currentStatusMessages.Keys)
+            {
+                await channel.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
             }
 
             // Send the messages to Discord.
