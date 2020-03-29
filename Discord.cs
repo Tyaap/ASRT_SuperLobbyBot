@@ -48,8 +48,7 @@ namespace SLB
             }
             else
             {
-                Console.Write("Enter bot token: ");
-                token = Console.ReadLine();
+                token = Web.InputRequest("Enter bot token.");
             }
 
             discordSocketClient.Log += DiscordSocketClient_Log;
@@ -62,7 +61,7 @@ namespace SLB
 
         public static async Task UpdateStatus(int playerCount, int lobbyPlayerCount, List<LobbyInfo> lobbyInfos)
         {
-            Console.Write("Updating Discord status messages...");
+            Console.WriteLine("Updating Discord status messages...");
 
             // Create new status channels
             if (currentStatusMessages == null)
@@ -182,7 +181,7 @@ namespace SLB
             }
             lastMessageCount = lobbyInfos.Count + 1;
             
-            Console.WriteLine("Done!");
+            Console.WriteLine("Updated Discord status messages!");
         }
 
         public static async Task RunBotAsync()
@@ -204,9 +203,9 @@ namespace SLB
             Console.WriteLine("Logged into Discord!");
             loggedIn = true;
 
-            Console.Write("Saving token file...");
+            Console.WriteLine("Saving token file...");
             File.WriteAllText("token.txt", token);
-            Console.WriteLine("Done!");
+            Console.WriteLine("Saved token file!");
 
             // free the main thread
             waitHandle.Set();

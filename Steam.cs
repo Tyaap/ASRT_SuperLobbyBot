@@ -65,21 +65,9 @@ namespace SLB
             // if tirst time, get logon details
             if (string.IsNullOrEmpty(user))
             {
-                Console.Write("Enter Steam username: ");
-                user = Console.ReadLine();
-                Console.Write("Enter password: ");
-                var key = new ConsoleKeyInfo('a', ConsoleKey.Backspace, false, false, false);
-                while (key.Key != ConsoleKey.Enter)
-                {
-                    if (key.Key == ConsoleKey.Backspace)
-                        pass = "";
-                    else
-                        pass += key.KeyChar;
-                    key = System.Console.ReadKey(true);
-                }
-                Console.WriteLine();
+                user = Web.InputRequest("Enter Steam username.");
+                pass = Web.InputRequest("Enter Steam password.");
             }
-
             var cellid = 0u;
             // if we've previously connected and saved our cellid, load it
             if (File.Exists("cellid.txt"))
@@ -133,7 +121,7 @@ namespace SLB
 
             isRunning = true;
 
-            Console.Write("Connecting to Steam...");
+            Console.WriteLine("Connecting to Steam...");
             // initiate the connection
             steamClient.Connect();
 
@@ -146,22 +134,31 @@ namespace SLB
 
         static void OnTimerTick(object state)
         {
+                        // web status
+            if (!Web.waitingForResponse) 
+            {
+                Web.message = string.Format(
+                    "Discord logged in: {0}\n" +
+                    "Steam logged in: {1}{2}",
+                Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "\nSuper Lobby Bot is active! :)" : "\n");
+            }
+
             if (loggedIn)
             {
                 // get current players
-                Console.Write("Getting number of current players...");
+                Console.WriteLine("Getting number of current players...");
                 steamUserStats.GetNumberOfCurrentPlayers(APPID);
                 completed = false;
                 waitHandle.WaitOne(STEAM_TIMEOUT);
                 if (!completed)
                 {
-                    Console.WriteLine("Timeout!");
+                    Console.WriteLine("Get number of current players, timed out!");
                     messageTimer.Change(MESSAGE_WAIT, -1);
                     return;
                 }
 
                 // get lobby list
-                Console.Write("Getting lobby list...");
+                Console.WriteLine("Getting lobby list...");
                 steamMatchmaking.GetLobbyList(APPID, 
                     new List<SteamMatchmaking.Lobby.Filter>() 
                     { 
@@ -173,7 +170,7 @@ namespace SLB
                 waitHandle.WaitOne(STEAM_TIMEOUT);
                 if (!completed)
                 {
-                    Console.WriteLine("Timeout!");
+                    Console.WriteLine("Get lobby list, timed out!");
                     messageTimer.Change(MESSAGE_WAIT, -1);
                     return;
                 }
@@ -191,13 +188,14 @@ namespace SLB
             {
                 Discord.UpdateStatus(playerCount, lobbyPlayerCount, lobbyInfos).GetAwaiter().GetResult();
             }
+
             // restart the timer
             messageTimer.Change(MESSAGE_WAIT, -1);
         }
 
         static void OnConnected(SteamClient.ConnectedCallback callback)
         {
-            Console.WriteLine("Done!");
+            Console.WriteLine("Connected to Steam!");
             byte[] sentryHash = null;
             // if we have a saved sentry file, read and sha-1 hash it
             if (File.Exists("sentry.bin"))
@@ -207,7 +205,7 @@ namespace SLB
                 Console.WriteLine("Using persisted sentry file.");
             }
 
-            Console.Write("Logging in '{0}'...", user);
+            Console.WriteLine("Logging '{0}' into Steam...", user);
             steamUser.LogOn(new SteamUser.LogOnDetails
             {
                 Username = user,
@@ -255,13 +253,11 @@ namespace SLB
 
                 if ( is2FA )
                 {
-                    Console.Write("Please enter your 2 factor auth code from your authenticator app: ");
-                    twoFactorAuth = Console.ReadLine();
+                    twoFactorAuth = Web.InputRequest("Please enter your 2 factor auth code from your authenticator app.");
                 }
                 else
                 {
-                    Console.Write("Please enter the auth code sent to the email at {0}: ", callback.EmailDomain);
-                    authCode = Console.ReadLine();
+                    authCode = Web.InputRequest(string.Format("Please enter the auth code sent to the email at {0}", callback.EmailDomain));
                 }
                 return;
             }
@@ -274,16 +270,16 @@ namespace SLB
                 return;
             }
             loggedIn = true;
-            Console.WriteLine("Done!");
+            Console.WriteLine("Logged into Steam!");
             
             // save the current cellid somewhere. if we lose our saved server list, we can use this when retrieving
             // servers from the Steam Directory.
-            Console.Write("Saving celliid file...");
+            Console.WriteLine("Saving celliid file...");
             File.WriteAllText("cellid.txt", callback.CellID.ToString());
-            Console.WriteLine("Done!");
+            Console.WriteLine("Saved celliid file!");
 
             // Start message timer
-            messageTimer.Change(MESSAGE_WAIT, -1);
+            messageTimer.Change(0, -1);
         }
 
         static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
@@ -294,7 +290,7 @@ namespace SLB
 
         static void OnMachineAuth(SteamUser.UpdateMachineAuthCallback callback)
         {
-            Console.Write("Saving sentry file...");
+            Console.WriteLine("Saving sentry file...");
 
             // write out our sentry file
             // ideally we'd want to write to the filename specified in the callback
@@ -335,20 +331,20 @@ namespace SLB
                 SentryFileHash = sentryHash,
             } );
 
-            Console.WriteLine("Done!");
+            Console.WriteLine("Saved sentry file!");
         }
 
         static void OnLoginKey(SteamUser.LoginKeyCallback callback)
         {
-            Console.Write("Saving loginkey file...");
+            Console.WriteLine("Saving loginkey file...");
             File.WriteAllLines("loginkey.txt", new string[] {user, callback.LoginKey});
             steamClient.GetHandler<SteamUser>().AcceptNewLoginKey(callback);
-            Console.WriteLine("Done!");
+            Console.WriteLine("Saved loginkey file!");
         }
 
         static void OnGetLobbyList(SteamMatchmaking.GetLobbyListCallback callback) 
         {
-            Console.WriteLine("Done!");
+            Console.WriteLine("Got lobby list!");
             lobbyPlayerCount = 0;
             int nLobbies = callback.Lobbies.Count;
             lobbyInfos = new List<LobbyInfo>();
@@ -401,7 +397,7 @@ namespace SLB
 
         static void OnNumberOfPlayers(SteamUserStats.NumberOfPlayersCallback callback)
         {
-            Console.WriteLine("Done!");
+            Console.WriteLine("Got number of current players!");
             playerCount = (int)callback.NumPlayers;
             completed = true;
             waitHandle.Set();

@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -28,9 +30,21 @@ namespace SLB
             {
                 endpoints.MapGet("/", async context =>
                 {
-                    await context.Response.WriteAsync("Hello World!");
+                    await context.Response.WriteAsync(Web.message);
                 });
+
+                endpoints.MapGet("/{response:minlength(1)}", context => ProcessResponse(context));
             });
+        }
+
+        public Task ProcessResponse(HttpContext context)
+        {
+            Console.WriteLine("Processing web response...");
+            Web.response = context.Request.RouteValues["response"].ToString();
+            Web.waitHandle.Set(); // Unblock the thread that was asking for user input
+            Web.message = "Input recieved! Press F5 to check for new messages.";
+            context.Response.Redirect("/");
+            return Task.Delay(0);
         }
     }
 }

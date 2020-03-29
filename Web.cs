@@ -13,12 +13,18 @@ namespace SLB
         const int PING_INTERVAL = 60000;
         static Timer pingTimer;
         static HttpClient client;
+        public static EventWaitHandle waitHandle;
+
+        public static bool waitingForResponse;
+        public static string message = "Super Lobby Bot is starting...";
+        public static string response;
 
         public static void Run()
         {
             CreateHostBuilder().Build().RunAsync();
             client = new HttpClient();
             pingTimer = new Timer(Ping, null, PING_INTERVAL, PING_INTERVAL);
+            waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
         }
 
         public static IHostBuilder CreateHostBuilder() =>
@@ -30,9 +36,21 @@ namespace SLB
 
         public static void Ping(object state) 
         {
-            Console.Write("Pinging web API...");
+            Console.WriteLine("Pinging web API...");
             client.GetStringAsync(HOST_ADDRESS);
-            Console.WriteLine("Done!");
+            Console.WriteLine("Pinged web API!");
+        }
+
+        public static string InputRequest(string webMessage)
+        {
+            Console.WriteLine("Waiting for web input: " + webMessage);
+            // Update web message, wait for response.
+            message = webMessage;
+            waitingForResponse = true;
+            waitHandle.WaitOne();
+            Console.WriteLine("Recieved web input!");
+            waitingForResponse = false;
+            return response;
         }
     }
 }
