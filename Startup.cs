@@ -39,12 +39,16 @@ namespace SLB
 
         public Task ProcessResponse(HttpContext context)
         {
-            Console.WriteLine("Processing web response...");
-            Web.response = context.Request.RouteValues["response"].ToString();
-            Web.waitHandle.Set(); // Unblock the thread that was asking for user input
-            Web.message = "Input recieved! Press F5 to check for new messages.";
-            context.Response.Redirect("/");
-            return Task.Delay(0);
+            if (Web.waitingForResponse)
+            {
+                Console.WriteLine("Processing web response...");
+                Web.response = context.Request.RouteValues["response"].ToString();
+                Web.waitHandle.Set(); // Unblock the thread that was asking for user input
+                Web.message = "Input recieved! Press F5 to check for new messages.";
+                context.Response.Redirect("/");
+                Web.waitingForResponse = false;
+            }
+            return Task.CompletedTask;
         }
     }
 }

@@ -9,7 +9,7 @@ namespace SLB
     static class Web
     {
         // Regularly ping the web API
-        const string HOST_ADDRESS = "http://localhost:5000/";
+        const string HOST_ADDRESS = "https://super-lobby-bot.herokuapp.com/";
         const int PING_INTERVAL = 60000;
         static Timer pingTimer;
         static HttpClient client;
@@ -38,7 +38,6 @@ namespace SLB
         {
             Console.WriteLine("Pinging web API...");
             client.GetStringAsync(HOST_ADDRESS);
-            Console.WriteLine("Pinged web API!");
         }
 
         public static string InputRequest(string webMessage)
@@ -49,7 +48,6 @@ namespace SLB
             waitingForResponse = true;
             waitHandle.WaitOne();
             Console.WriteLine("Recieved web input!");
-            waitingForResponse = false;
             return response;
         }
     }

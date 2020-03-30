@@ -16,4 +16,4 @@ RUN dotnet restore
 # build
 RUN dotnet publish -c Release -o out
 # run
-CMD ASPNETCORE_URLS=http://*:$PORT dotnet out/SLB.dll
+CMD ASPNETCORE_URLS=http://*:$PORT dotnet out/SLB.dll $TOKEN $USER $PASS

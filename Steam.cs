@@ -20,7 +20,7 @@ namespace SLB
         static bool isRunning;
         static bool loggedIn;
 
-        static string user, pass, loginkey;
+        public static string user, pass, loginkey;
 
         static string authCode, twoFactorAuth;
 
@@ -45,28 +45,6 @@ namespace SLB
 
         public static void Run()
         {
-            // if we've previously connected and saved our login key, load it
-            if (File.Exists("loginkey.txt"))
-            {
-                string[] lines = File.ReadAllLines("loginkey.txt");
-                if (lines.Length == 2)
-                {
-                    user = lines[0];
-                    loginkey = lines[1];
-                    Console.WriteLine("Using persisted login key.");
-                }
-                else
-                {
-                    Console.WriteLine("Error parsing login key from loginkey.txt.");
-                }
-            }
-
-            // if tirst time, get logon details
-            if (string.IsNullOrEmpty(user))
-            {
-                user = Web.InputRequest("Enter Steam username.");
-                pass = Web.InputRequest("Enter Steam password.");
-            }
             var cellid = 0u;
             // if we've previously connected and saved our cellid, load it
             if (File.Exists("cellid.txt"))
@@ -122,7 +100,7 @@ namespace SLB
 
             Console.WriteLine("Connecting to Steam...");
             // initiate the connection
-            steamClient.Connect();
+            SteamConnect();
 
             while (isRunning)
             {
@@ -131,9 +109,35 @@ namespace SLB
             }
         }
 
+        static void SteamConnect()
+        {
+            // if we've previously connected and saved our login key, load it
+            if (File.Exists("loginkey.txt"))
+            {
+                string[] lines = File.ReadAllLines("loginkey.txt");
+                if (lines.Length == 2)
+                {
+                    user = lines[0];
+                    loginkey = lines[1];
+                    Console.WriteLine("Using persisted login key.");
+                }
+                else
+                {
+                    Console.WriteLine("Error parsing login key from loginkey.txt.");
+                }
+            }
+            // if tirst time, get logon details
+            if (string.IsNullOrEmpty(user))
+            {
+                user = Web.InputRequest("Enter Steam username.");
+                pass = Web.InputRequest("Enter Steam password.");
+            }
+            steamClient.Connect();
+        }
+
         static void OnTimerTick(object state)
         {
-                        // web status
+            // web status
             if (!Web.waitingForResponse) 
             {
                 Web.message = string.Format(
@@ -236,9 +240,9 @@ namespace SLB
 
             Console.WriteLine("Disconnected from Steam, reconnecting in 5...");
 
-            Thread.Sleep(TimeSpan.FromSeconds(5));
+            Thread.Sleep(5000);
 
-            steamClient.Connect();
+            SteamConnect();
         }
 
         static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
@@ -264,8 +268,21 @@ namespace SLB
             if (callback.Result != EResult.OK)
             {
                 Console.WriteLine("Unable to logon to Steam: {0} / {1}", callback.Result, callback.ExtendedResult);
-
-                isRunning = false;
+                if (callback.Result == EResult.InvalidPassword)
+                {
+                    user = null;
+                    pass = null;
+                    loginkey = null;
+                    if (File.Exists("loginkey.txt"))
+                    {
+                        File.Delete("loginkey.txt");
+                    }
+                }
+                if (callback.Result == EResult.RateLimitExceeded)
+                {
+                    Console.WriteLine("Waiting for 1 hour...");
+                    Thread.Sleep(TimeSpan.FromHours(1));
+                }
                 return;
             }
             loggedIn = true;

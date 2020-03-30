@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
+using Discord.Net;
 using Discord.Rest;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
@@ -18,7 +19,7 @@ namespace SLB
         private static CommandService commandService;
         private static IServiceProvider serviceProvider;
         static EventWaitHandle waitHandle;
-        private static string token;
+        public static string token;
         public static bool loggedIn;
         // messages, organised by guild and channel
         public static Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>> currentStatusMessages;
@@ -45,7 +46,7 @@ namespace SLB
                 token = File.ReadAllText("token.txt");
                 Console.WriteLine("Using persisted bot token.");
             }
-            else
+            if (string.IsNullOrEmpty(token))
             {
                 token = Web.InputRequest("Enter bot token.");
             }
@@ -53,7 +54,8 @@ namespace SLB
             discordSocketClient.Log += DiscordSocketClient_Log;
             discordSocketClient.LoggedIn += DiscordSocketClient_LoggedIn;
             discordSocketClient.LoggedOut += DiscordSocketClient_LoggedOut;
-            RunBotAsync().GetAwaiter().GetResult();
+            RegisterCommandsAsync().GetAwaiter().GetResult();
+            LoginAsync().GetAwaiter().GetResult();
             // wait for discord login
             waitHandle.WaitOne();
         }
@@ -157,10 +159,11 @@ namespace SLB
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
                         Console.WriteLine("Status channel setup complete!");
                     }
-                    catch(Exception e)
+                    catch(HttpException e)
                     {
                         Console.WriteLine("Server setup failed!");
-                        Console.WriteLine(e);
+                        UpdateStatusError(guild.Id, e);
+                        continue;
                     }
                 }
                 
@@ -169,18 +172,18 @@ namespace SLB
                 {
                     await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
                 }
-                catch(Exception e)
+                catch(HttpException e)
                 {
                     Console.WriteLine("Failed to set status channel name on server {0} ({1})", guild.Name, guild.Id);
-                    Console.WriteLine(e);
+                    UpdateStatusError(guild.Id, e);
+                    continue;
                 }
-
 
                 // Send/update messages
                 int count = Math.Max(messages.Count, lastMessageCount);
-                for (int i = 0; i < count; i++)
+                try
                 {
-                    try
+                    for (int i = 0; i < count; i++)
                     {
                         string message = i < messages.Count ? messages[i] : "** **";
                         Embed embed = i < embeds.Count ? embeds[i] : null;
@@ -194,24 +197,50 @@ namespace SLB
                             channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed));
                         }
                     }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);
-                        Console.WriteLine(e);
-                    }
                 }
+                catch (HttpException e)
+                {
+                    Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);                  
+                    UpdateStatusError(guild.Id, e);
+                    continue;
+                }                
             }
             lastMessageCount = lobbyInfos.Count + 1;
             
             Console.WriteLine("Updated Discord status messages!");
         }
 
-        public static async Task RunBotAsync()
+        public static void UpdateStatusError(ulong guildId, HttpException e)
         {
-            await RegisterCommandsAsync();
-            Console.WriteLine("Logon to Discord...");
-            await discordSocketClient.LoginAsync(TokenType.Bot, token);
-            await discordSocketClient.StartAsync();
+            switch (e.DiscordCode)
+            {
+                case 10003:
+                    Console.WriteLine("Channel cound not be found!");
+                    currentStatusMessages.Remove(guildId);
+                    return;
+                case 50001:
+                    Console.WriteLine("Bot does not have permission!");
+                    currentStatusMessages.Remove(guildId);
+                    return;
+                default:
+                    Console.WriteLine(e);
+                    return;
+            }
+        }
+
+        public static async Task LoginAsync()
+        {
+            Console.WriteLine("Logging into Discord...");
+            try
+            {      
+                await discordSocketClient.LoginAsync(TokenType.Bot, token);
+                await discordSocketClient.StartAsync();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Failed to log into Discord!");
+                Console.WriteLine(e);
+            }
         }
 
         private static Task DiscordSocketClient_Log(LogMessage arg)
@@ -234,11 +263,12 @@ namespace SLB
             return Task.CompletedTask;
         }
 
-        private static Task DiscordSocketClient_LoggedOut()
+        private static async Task DiscordSocketClient_LoggedOut()
         {
-            Console.WriteLine("Logged out of Discord!");
+            Console.WriteLine("Logged out of Discord, logging back on in 5...");
             loggedIn = false;
-            return Task.CompletedTask;
+            await Task.Delay(5000);
+            await LoginAsync();
         }
 
         public static async Task RegisterCommandsAsync()
