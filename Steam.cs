@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamKit2;
 using SteamKit2.Discovery;
-using SteamKit2.Internal;
 
 namespace SLB
 {
@@ -34,10 +33,6 @@ namespace SLB
 
         // timer for updating message
         static Timer messageTimer;
-
-        static EventWaitHandle waitHandle;
-        static bool gotLobbyListCallback;
-        static SteamMatchmaking.GetLobbyListCallback getLobbyListCallback;
 
 
         // ASRT's appid
@@ -92,12 +87,8 @@ namespace SLB
             // this callback is triggered when the steam servers wish for the client to store the login key
             manager.Subscribe<SteamUser.LoginKeyCallback>(OnLoginKey);
 
-            manager.Subscribe<SteamMatchmaking.GetLobbyListCallback>(OnGetLobbyList);
-
             // message update timer
             messageTimer = new Timer(OnTimerTick, null, MESSAGE_WAIT, -1);
-
-            waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
 
             isRunning = true;
 
@@ -177,21 +168,13 @@ namespace SLB
                 Console.WriteLine("Getting lobby list...");
                 try
                 {
-                    //var getLobbyListCallback = await 
-                    var steamJob = steamMatchmaking.GetLobbyList(APPID, 
+                    var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID, 
                         new List<SteamMatchmaking.Lobby.Filter>() 
                         { 
                             new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
-                            new SteamMatchmaking.Lobby.SlotsAvailableFilter(-1),
+                            new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
                         }
                     );
-                    gotLobbyListCallback = false;
-                    waitHandle.WaitOne(STEAM_TIMEOUT); //var getLobbyListCallback = await steamJob; // currently does not work
-                    if (!gotLobbyListCallback)
-                    {
-                        throw new TaskCanceledException();
-                    }
-
                     if (getLobbyListCallback.Result == EResult.OK)
                     {
                         Console.WriteLine("Got lobby list!");
@@ -483,13 +466,6 @@ namespace SLB
                 }
 
                 return lobbyInfo;
-        }
-
-        public static void OnGetLobbyList(SteamMatchmaking.GetLobbyListCallback callback)
-        {
-            getLobbyListCallback = callback;
-            gotLobbyListCallback = true;
-            waitHandle.Set();
         }
 
         public static byte ExtractByte(byte[] bytes, int bitOffset)
