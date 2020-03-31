@@ -18,7 +18,6 @@ namespace SLB
         private static DiscordSocketClient discordSocketClient;
         private static CommandService commandService;
         private static IServiceProvider serviceProvider;
-        static EventWaitHandle waitHandle;
         public static string token;
         public static bool loggedIn;
         // messages, organised by guild and channel
@@ -39,8 +38,9 @@ namespace SLB
                 .AddSingleton(discordSocketClient)
                 .AddSingleton(commandService)
                 .BuildServiceProvider();
-            waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
+
             currentStatusMessages = new Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>>();
+            
             if (File.Exists("token.txt"))
             {
                 token = File.ReadAllText("token.txt");
@@ -56,11 +56,9 @@ namespace SLB
             discordSocketClient.LoggedOut += DiscordSocketClient_LoggedOut;
             RegisterCommandsAsync().GetAwaiter().GetResult();
             LoginAsync().GetAwaiter().GetResult();
-            // wait for discord login
-            waitHandle.WaitOne();
         }
 
-        public static async Task UpdateStatus(int playerCount, int lobbyPlayerCount, List<LobbyInfo> lobbyInfos)
+        public static async Task UpdateStatus(int playerCount, LobbyCounts lobbyCounts, List<LobbyInfo> lobbyInfos)
         {
             Console.WriteLine("Updating Discord status messages...");
             
@@ -71,20 +69,10 @@ namespace SLB
             // Create overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("__S&ASRT lobby status — {0} GMT__", DateTime.Now.ToString(CLOCK_FORMAT));
-                statusOverview += string.Format("\n\n**{0} people are playing S&ASRT.**", playerCount);
-                if (lobbyPlayerCount == 0)
-                {
-                    statusOverview += "\n**There are no matchmaking lobbies!**";
-                }
-                else if (lobbyPlayerCount == 1)
-                {
-                    statusOverview += "\n**1 player is in a matchmaking lobby.**";
-                }
-                else
-                {
-                    statusOverview += string.Format("\n**{0} players are in {1} matchmaking {2}.**", lobbyPlayerCount, lobbyInfos.Count, lobbyInfos.Count > 1 ? "lobbies" : "lobby");;
-                }
+                string statusOverview = string.Format("**__S&ASRT lobby status — {0} GMT__**", DateTime.Now.ToString(CLOCK_FORMAT));
+                statusOverview += string.Format("\n\n**{0} people are playing S&ASRT.", playerCount);
+                statusOverview += "\n" + LobbyCountMessage(lobbyCounts.matchmakingLobbies, lobbyCounts.matchmakingPlayers, "matchmaking");
+                statusOverview += "\n" + LobbyCountMessage(lobbyCounts.customGameLobbies, lobbyCounts.customGamePlayers, "custom game");
                 messages.Add(statusOverview);
                 embeds.Add(null);
             }
@@ -137,23 +125,48 @@ namespace SLB
                 {
                     Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
                     try{    
-                        // Find and delete old status channels
+                        // Look for old status channels
                         var textChannels = await guild.GetTextChannelsAsync();
+                        RestTextChannel statusChannel = null;
                         foreach (var channel in textChannels)
                         {
                             if (channel.Name.EndsWith("-in-matchmaking"))
                             {
-                                await channel.DeleteAsync();
+                                statusChannel = channel;
+                                break;
                             }
-                        }   
-                        // Create status channel
-                        var statusChannel = await guild.CreateTextChannelAsync(string.Format("{0}-in-matchmaking", lobbyPlayerCount));
-                        List<RestUserMessage> statusMessages = new List<RestUserMessage>();
+                        }
+
+                         // Delete old messages if channel exists
+                        if (statusChannel != null)
+                        {
+                            List<RestMessage> oldMessages = new List<RestMessage>();
+                            await foreach (var discordMessages in statusChannel.GetMessagesAsync())
+                            {
+                                foreach (var discordMessage in  discordMessages)
+                                { 
+                                    if (discordMessage.Author.Id == discordSocketClient.CurrentUser.Id)
+                                    {
+                                        oldMessages.Add(discordMessage);
+                                    }
+                                }
+                            }
+                            await statusChannel.DeleteMessagesAsync(oldMessages);
+                        }
+                        // Create status channel if not found
+                        else
+                        {
+                            statusChannel = await guild.CreateTextChannelAsync("xx-in-matchmaking");
+                        }
+                        
                         // Allocate status messages
-                        for (int i = 0; i < ALLOCATED_MESSAGES; i++)
+                        List<RestUserMessage> statusMessages = new List<RestUserMessage>();
+                        statusMessages.Add(await statusChannel.SendMessageAsync("**Super Lobby Bot is initialising...**"));
+                        for (int i = 0; i < ALLOCATED_MESSAGES - 1; i++)
                         {
                             statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
                         }
+
                         // Store channel/message pair
                         channelMessagePair = new Tuple<RestTextChannel, List<RestUserMessage>>(statusChannel, statusMessages);
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
@@ -161,7 +174,7 @@ namespace SLB
                     }
                     catch(HttpException e)
                     {
-                        Console.WriteLine("Server setup failed!");
+                        Console.WriteLine("Status channel setup failed!");
                         UpdateStatusError(guild.Id, e);
                         continue;
                     }
@@ -170,7 +183,7 @@ namespace SLB
                 // Set channel name
                 try
                 {
-                    await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyPlayerCount >= 0 ? lobbyPlayerCount.ToString() : "xx") + "-in-matchmaking";});
+                    await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking";});
                 }
                 catch(HttpException e)
                 {
@@ -228,6 +241,22 @@ namespace SLB
             }
         }
 
+        public static string LobbyCountMessage(int lobbyCount, int playerCount, string lobbyType)
+        {
+            if (playerCount == 0)
+            {
+                return string.Format("**There are no {0} lobbies!**", lobbyType);
+            }
+            else if (playerCount == 1)
+            {
+                return string.Format("**1** player is in a {0} lobby.", lobbyType);
+            }
+            else
+            {
+                return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby");;
+            }
+        }
+
         public static async Task LoginAsync()
         {
             Console.WriteLine("Logging into Discord...");
@@ -258,8 +287,6 @@ namespace SLB
             File.WriteAllText("token.txt", token);
             Console.WriteLine("Saved token file!");
 
-            // free the main thread
-            waitHandle.Set();
             return Task.CompletedTask;
         }
 

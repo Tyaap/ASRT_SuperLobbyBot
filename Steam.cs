@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
+using System.Threading.Tasks;
 using SteamKit2;
 using SteamKit2.Discovery;
+using SteamKit2.Internal;
 
 namespace SLB
 {
@@ -24,16 +26,19 @@ namespace SLB
 
         static string authCode, twoFactorAuth;
 
+        // linfo for status message
         static int playerCount;
-        static int lobbyPlayerCount;
-        // lobbies info for status message
+        static LobbyCounts lobbyCounts;
         static List<LobbyInfo> lobbyInfos;
         
 
         // timer for updating message
         static Timer messageTimer;
+
         static EventWaitHandle waitHandle;
-        static bool completed;
+        static bool gotLobbyListCallback;
+        static SteamMatchmaking.GetLobbyListCallback getLobbyListCallback;
+
 
         // ASRT's appid
         public const int APPID = 212480;
@@ -89,10 +94,8 @@ namespace SLB
 
             manager.Subscribe<SteamMatchmaking.GetLobbyListCallback>(OnGetLobbyList);
 
-            manager.Subscribe<SteamUserStats.NumberOfPlayersCallback>(OnNumberOfPlayers);
-
-            // message update timer, to be started once logged in
-            messageTimer = new Timer(OnTimerTick, null, -1, -1);
+            // message update timer
+            messageTimer = new Timer(OnTimerTick, null, MESSAGE_WAIT, -1);
 
             waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
 
@@ -135,7 +138,7 @@ namespace SLB
             steamClient.Connect();
         }
 
-        static void OnTimerTick(object state)
+        static async void OnTimerTick(object state)
         {
             // web status
             if (!Web.waitingForResponse) 
@@ -148,48 +151,75 @@ namespace SLB
 
             if (loggedIn)
             {
-                // get current players
+                // get number of current players
                 Console.WriteLine("Getting number of current players...");
-                steamUserStats.GetNumberOfCurrentPlayers(APPID);
-                completed = false;
-                waitHandle.WaitOne(STEAM_TIMEOUT);
-                if (!completed)
+                try
                 {
-                    Console.WriteLine("Get number of current players, timed out!");
-                    messageTimer.Change(MESSAGE_WAIT, -1);
+                    var numberOfPlayersCallback = await steamUserStats.GetNumberOfCurrentPlayers(APPID);
+                    if (numberOfPlayersCallback.Result == EResult.OK)
+                    {
+                        Console.WriteLine("Got number of current players!");
+                        playerCount = (int)numberOfPlayersCallback.NumPlayers;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to get number of current players: {0}", numberOfPlayersCallback.Result);
+                        return;
+                    }
+                }
+                catch(TaskCanceledException)
+                {
+                    Console.WriteLine("Failed to get number of current players: Timeout");
                     return;
                 }
 
                 // get lobby list
                 Console.WriteLine("Getting lobby list...");
-                steamMatchmaking.GetLobbyList(APPID, 
-                    new List<SteamMatchmaking.Lobby.Filter>() 
-                    { 
-                        new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
-                        new SteamMatchmaking.Lobby.SlotsAvailableFilter(-1),
-                    }
-                );
-                completed = false;
-                waitHandle.WaitOne(STEAM_TIMEOUT);
-                if (!completed)
+                try
                 {
-                    Console.WriteLine("Get lobby list, timed out!");
-                    messageTimer.Change(MESSAGE_WAIT, -1);
+                    //var getLobbyListCallback = await 
+                    var steamJob = steamMatchmaking.GetLobbyList(APPID, 
+                        new List<SteamMatchmaking.Lobby.Filter>() 
+                        { 
+                            new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
+                            new SteamMatchmaking.Lobby.SlotsAvailableFilter(-1),
+                        }
+                    );
+                    gotLobbyListCallback = false;
+                    waitHandle.WaitOne(STEAM_TIMEOUT); //var getLobbyListCallback = await steamJob; // currently does not work
+                    if (!gotLobbyListCallback)
+                    {
+                        throw new TaskCanceledException();
+                    }
+
+                    if (getLobbyListCallback.Result == EResult.OK)
+                    {
+                        Console.WriteLine("Got lobby list!");
+                        ProcessLobbyList(getLobbyListCallback.Lobbies);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to get lobby list: {0}", getLobbyListCallback.Result);
+                        return;
+                    }
+                }
+                catch(TaskCanceledException)
+                {
+                    Console.WriteLine("Failed to get lobby list: Timeout");
                     return;
                 }
-                lobbyInfos.Sort((x,y) => x.type.CompareTo(y.type));
             }
             else
             {
                 playerCount = -1;
-                lobbyPlayerCount = -1;
+                lobbyCounts = new LobbyCounts();
                 lobbyInfos = new List<LobbyInfo>();
             }
 
             // send discord messages
             if (Discord.loggedIn)
             {
-                Discord.UpdateStatus(playerCount, lobbyPlayerCount, lobbyInfos).GetAwaiter().GetResult();
+                Discord.UpdateStatus(playerCount, lobbyCounts, lobbyInfos).GetAwaiter().GetResult();
             }
 
             // restart the timer
@@ -293,9 +323,6 @@ namespace SLB
             Console.WriteLine("Saving celliid file...");
             File.WriteAllText("cellid.txt", callback.CellID.ToString());
             Console.WriteLine("Saved celliid file!");
-
-            // Start message timer
-            messageTimer.Change(0, -1);
         }
 
         static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
@@ -358,17 +385,69 @@ namespace SLB
             Console.WriteLine("Saved loginkey file!");
         }
 
-        static void OnGetLobbyList(SteamMatchmaking.GetLobbyListCallback callback) 
+        static async void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
         {
-            Console.WriteLine("Got lobby list!");
-            lobbyPlayerCount = 0;
-            int nLobbies = callback.Lobbies.Count;
-            lobbyInfos = new List<LobbyInfo>();
-            for (int i = 0; i < nLobbies; i++)
+            if (lobbyInfos == null)
             {
-                SteamMatchmaking.Lobby lobby = callback.Lobbies[i];
+                lobbyInfos = new List<LobbyInfo>();
+            }
+            lobbyCounts = new LobbyCounts();
+            foreach (var lobby in lobbies)
+            {
+                LobbyInfo lobbyInfo = ProcessLobby(lobby);
 
-                // New empty lobby info
+                // store matchmaking lobby info
+                if (lobbyInfo.type >= 0 && lobbyInfo.type <= 2)
+                {
+                    // If in the lobby info list, move it to the list end and update its details
+                    int index = lobbyInfos.FindIndex(l => l.id == lobbyInfo.id);
+                    if (index >= 0)
+                    {
+                        lobbyInfos.RemoveAt(index);
+                    }
+                    else
+                    {
+                        Console.WriteLine("New matchmaking lobby: {0} ({0})", lobbyInfo.name, lobbyInfo.id);
+                    }
+                    lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
+                    lobbyCounts.matchmakingLobbies ++;
+                    lobbyInfos.Add(lobbyInfo);
+                }
+                else if (lobbyInfo.type == 3)
+                {
+                    lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
+                    lobbyCounts.customGameLobbies ++;
+                }
+            }
+
+            // Check lobbies that have disappeared from the retrieved list
+            // These will be at the start of the lobby info list
+            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - 1; i >= 0; i--)
+            {
+                // This check currently does not work as expected
+                /*
+                Console.WriteLine("GetLobbyData...");
+                try
+                {
+                    var callback = await steamMatchmaking.GetLobbyData(APPID, lobbyInfos[i].id);
+                    lobbyInfos[i] = ProcessLobby(callback.Lobby);
+                    Console.WriteLine("Full matchmaking lobby: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                }
+                catch
+                {
+                */
+                    Console.WriteLine("Matchmaking lobby disappeared: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    lobbyInfos.RemoveAt(i);
+                //}
+            }
+
+            // Sort by number of players
+            lobbyInfos.Sort((x,y) => x.type.CompareTo(y.playerCount));
+        }
+
+        public static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
+        {
+            // New empty lobby info
                 LobbyInfo lobbyInfo = new LobbyInfo() 
                 {
                     name = "Lobby",
@@ -390,10 +469,6 @@ namespace SLB
                 {
                     lobbyInfo.type -= 1549;              
                 } 
-                if (lobbyInfo.type > 2 || lobbyInfo.type < 0)
-                {
-                    continue;
-                }    
 
                 // Finer details
                 if (lobby.Metadata.TryGetValue("lobbydata", out value))
@@ -407,19 +482,13 @@ namespace SLB
                     lobbyInfo.playerCount = Math.Max(lobby.NumMembers, ExtractByte(data, data.Length*8 - 29) & 15);
                 }
 
-                // store lobby info
-                lobbyInfos.Add(lobbyInfo);
-                lobbyPlayerCount += lobbyInfo.playerCount;
-            }
-            completed = true;
-            waitHandle.Set();
+                return lobbyInfo;
         }
 
-        static void OnNumberOfPlayers(SteamUserStats.NumberOfPlayersCallback callback)
+        public static void OnGetLobbyList(SteamMatchmaking.GetLobbyListCallback callback)
         {
-            Console.WriteLine("Got number of current players!");
-            playerCount = (int)callback.NumPlayers;
-            completed = true;
+            getLobbyListCallback = callback;
+            gotLobbyListCallback = true;
             waitHandle.Set();
         }
 

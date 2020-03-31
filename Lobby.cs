@@ -13,6 +13,14 @@ namespace SLB
         public int difficulty;
     }
 
+    public struct LobbyCounts
+    {
+        public int matchmakingLobbies;
+        public int matchmakingPlayers;
+        public int customGameLobbies;
+        public int customGamePlayers;
+    }
+
     public static class LobbyTools
     {
         static readonly string[] LOBBYTYPES = { "Matchmaking Race", "Matchmaking Arena", "Matchmaking Lucky Dip", "Custom Game"};
