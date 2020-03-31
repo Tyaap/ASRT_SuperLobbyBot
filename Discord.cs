@@ -70,7 +70,7 @@ namespace SLB
             if (playerCount >= 0)
             {
                 string statusOverview = string.Format("**__S&ASRT lobby status — {0} GMT__**", DateTime.Now.ToString(CLOCK_FORMAT));
-                statusOverview += string.Format("\n\n**{0} people are playing S&ASRT.", playerCount);
+                statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.matchmakingLobbies, lobbyCounts.matchmakingPlayers, "matchmaking");
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.customGameLobbies, lobbyCounts.customGamePlayers, "custom game");
                 messages.Add(statusOverview);
