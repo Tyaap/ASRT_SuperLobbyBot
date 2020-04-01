@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Commands;
@@ -21,7 +20,7 @@ namespace SLB
         public static string token;
         public static bool loggedIn;
         // messages, organised by guild and channel
-        public static Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>> currentStatusMessages;
+        public static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
         public static int lastMessageCount;
 
         // message clock format
@@ -32,14 +31,14 @@ namespace SLB
 
         public static void Run()
         {
-            discordSocketClient = new DiscordSocketClient();
+            discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig {ExclusiveBulkDelete = true});
             commandService = new CommandService();
             serviceProvider = new ServiceCollection()
                 .AddSingleton(discordSocketClient)
                 .AddSingleton(commandService)
                 .BuildServiceProvider();
 
-            currentStatusMessages = new Dictionary<ulong, Tuple<RestTextChannel, List<RestUserMessage>>>();
+            currentStatusMessages = new Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>>();
             
             if (File.Exists("token.txt"))
             {
@@ -121,7 +120,8 @@ namespace SLB
             foreach(var guild in guilds)
             {
                 // Set up the status channel in each guild
-                if (!currentStatusMessages.TryGetValue(guild.Id, out Tuple<RestTextChannel, List<RestUserMessage>> channelMessagePair))
+                bool newChannel = !currentStatusMessages.TryGetValue(guild.Id, out var channelMessagePair);
+                if (newChannel)
                 {
                     Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
                     try{    
@@ -137,38 +137,44 @@ namespace SLB
                             }
                         }
 
-                         // Delete old messages if channel exists
+                        List<IUserMessage> statusMessages = new List<IUserMessage>();
+                         // Reuse old messages if channel exists
                         if (statusChannel != null)
                         {
-                            List<RestMessage> oldMessages = new List<RestMessage>();
                             await foreach (var discordMessages in statusChannel.GetMessagesAsync())
                             {
-                                foreach (var discordMessage in  discordMessages)
+                                foreach (IUserMessage discordMessage in discordMessages)
                                 { 
                                     if (discordMessage.Author.Id == discordSocketClient.CurrentUser.Id)
                                     {
-                                        oldMessages.Add(discordMessage);
+                                        statusMessages.Add(discordMessage);
                                     }
                                 }
                             }
-                            await statusChannel.DeleteMessagesAsync(oldMessages);
+                            // Ensure the status messages are ordered correctly
+                            statusMessages.Sort((x, y) => x.Timestamp.CompareTo(y.Timestamp));
+
+                            // Sufficient messages, we assume that these messages were combined previously.
+                            if (statusMessages.Count > ALLOCATED_MESSAGES)
+                            {
+                                // Delete excess
+                                await statusChannel.DeleteMessagesAsync(statusMessages.GetRange(ALLOCATED_MESSAGES, statusMessages.Count - ALLOCATED_MESSAGES));
+                                statusMessages.RemoveRange(ALLOCATED_MESSAGES, statusMessages.Count - ALLOCATED_MESSAGES);
+                            }
+                            // Insufficient messages, start from scratch to ensure the messages are combined.
+                            else if (statusMessages.Count < ALLOCATED_MESSAGES)
+                            {
+                                await statusChannel.DeleteMessagesAsync(statusMessages);
+                                statusMessages.Clear();
+                            }
                         }
                         // Create status channel if not found
                         else
                         {
                             statusChannel = await guild.CreateTextChannelAsync("xx-in-matchmaking");
                         }
-                        
-                        // Allocate status messages
-                        List<RestUserMessage> statusMessages = new List<RestUserMessage>();
-                        statusMessages.Add(await statusChannel.SendMessageAsync("**Super Lobby Bot is initialising...**"));
-                        for (int i = 0; i < ALLOCATED_MESSAGES - 1; i++)
-                        {
-                            statusMessages.Add(await statusChannel.SendMessageAsync("** **"));
-                        }
-
                         // Store channel/message pair
-                        channelMessagePair = new Tuple<RestTextChannel, List<RestUserMessage>>(statusChannel, statusMessages);
+                        channelMessagePair = new Tuple<ITextChannel, List<IUserMessage>>(statusChannel, statusMessages);
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
                         Console.WriteLine("Status channel setup complete!");
                     }
@@ -193,7 +199,9 @@ namespace SLB
                 }
 
                 // Send/update messages
-                int count = Math.Max(messages.Count, lastMessageCount);
+                // Case true: Ensures a new hannel has messages allocated.
+                // Case false: Update/send the appropriate subset of messages.
+                int count = newChannel ? ALLOCATED_MESSAGES : Math.Max(messages.Count, lastMessageCount);
                 try
                 {
                     for (int i = 0; i < count; i++)

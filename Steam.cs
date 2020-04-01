@@ -155,12 +155,14 @@ namespace SLB
                     else
                     {
                         Console.WriteLine("Failed to get number of current players: {0}", numberOfPlayersCallback.Result);
+                        messageTimer.Change(MESSAGE_WAIT, -1);
                         return;
                     }
                 }
                 catch(TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get number of current players: Timeout");
+                    messageTimer.Change(MESSAGE_WAIT, -1);
                     return;
                 }
 
@@ -183,12 +185,14 @@ namespace SLB
                     else
                     {
                         Console.WriteLine("Failed to get lobby list: {0}", getLobbyListCallback.Result);
+                        messageTimer.Change(MESSAGE_WAIT, -1);
                         return;
                     }
                 }
                 catch(TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get lobby list: Timeout");
+                    messageTimer.Change(MESSAGE_WAIT, -1);
                     return;
                 }
             }
@@ -253,6 +257,7 @@ namespace SLB
 
             Console.WriteLine("Disconnected from Steam, reconnecting in 5...");
 
+            loggedIn = false;
             Thread.Sleep(5000);
 
             SteamConnect();
@@ -368,7 +373,7 @@ namespace SLB
             Console.WriteLine("Saved loginkey file!");
         }
 
-        static async void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
+        static void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
         {
             if (lobbyInfos == null)
             {
