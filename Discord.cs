@@ -122,7 +122,17 @@ namespace SLB
                 embeds.Add(builder.Build());
             }
 
-            var guilds = await discordSocketClient.Rest.GetGuildsAsync();
+            IReadOnlyCollection<RestGuild> guilds = null;
+            try
+            {
+                guilds = await discordSocketClient.Rest.GetGuildsAsync();
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine("Guild list retrieval failed!");
+                Console.WriteLine(e);
+                return;
+            }
             foreach(var guild in guilds)
             {
                 // Set up the status channel in each guild
@@ -232,9 +242,7 @@ namespace SLB
                     continue;
                 }                
             }
-            lastMessageCount = lobbyInfos.Count + 1;
-            
-            Console.WriteLine("Updated Discord status messages!");
+            lastMessageCount = lobbyInfos.Count + 1;     
         }
 
         public static void UpdateStatusError(ulong guildId, HttpException e)
