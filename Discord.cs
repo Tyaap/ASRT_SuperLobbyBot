@@ -84,10 +84,16 @@ namespace SLB
             // Create lobby messages
             foreach (var lobbyInfo in lobbyInfos)
             {
+                // Skip displaying custom lobbies
+                if (lobbyInfo.type == 3)
+                {
+                    continue;
+                }
+
                 EmbedBuilder builder = new EmbedBuilder();
                 builder.WithColor(LOBBY_COLOUR);
                 builder.WithTitle(lobbyInfo.name);
-                builder.AddField("Players", lobbyInfo.playerCount.ToString(), true);
+                builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
                 if (lobbyInfo.type >= 0)
                 {
                     builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);

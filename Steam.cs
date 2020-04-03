@@ -384,8 +384,8 @@ namespace SLB
             {
                 LobbyInfo lobbyInfo = ProcessLobby(lobby);
 
-                // store matchmaking lobby info
-                if (lobbyInfo.type >= 0 && lobbyInfo.type <= 2)
+                // store lobby info
+                if (lobbyInfo.type >= 0 && lobbyInfo.type <= 3)
                 {
                     // If in the lobby info list, move it to the list end and update its details
                     int index = lobbyInfos.FindIndex(l => l.id == lobbyInfo.id);
@@ -395,26 +395,30 @@ namespace SLB
                     }
                     else
                     {
-                        Console.WriteLine("New matchmaking lobby: {0} ({0})", lobbyInfo.name, lobbyInfo.id);
+                        Console.WriteLine("New lobby: {0} ({0})", lobbyInfo.name, lobbyInfo.id);
                     }
-                    lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                    lobbyCounts.matchmakingLobbies ++;
+
+                    if (lobbyInfo.type == 3) 
+                    {
+                        lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
+                        lobbyCounts.customGameLobbies ++;
+                    }
+                    else
+                    {
+                        lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
+                        lobbyCounts.matchmakingLobbies ++;
+                    }
                     lobbyInfos.Add(lobbyInfo);
-                }
-                else if (lobbyInfo.type == 3)
-                {
-                    lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                    lobbyCounts.customGameLobbies ++;
                 }
             }
 
             // Check lobbies that have disappeared from the retrieved list - they are either full or were deleted
             // These will be at the start of the lobby info list
-            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - 1; i >= 0; i--)
+            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - lobbyCounts.customGameLobbies - 1; i >= 0; i--)
             {
                 if ( lobbyInfos[i].playerCount > 6) // Experimental workaround for SteamKit issue. This is an assumption about whether the lobby is full or was deleted. 
                 {
-                    Console.WriteLine("Assuming a matchmaking lobby is full: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    Console.WriteLine("Assuming lobby is full: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
                     // Assume the lobby is full
                     try
                     {
