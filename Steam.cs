@@ -375,69 +375,81 @@ namespace SLB
 
         static async void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
         {
+            lobbyCounts = new LobbyCounts();
             if (lobbyInfos == null)
             {
                 lobbyInfos = new List<LobbyInfo>();
             }
-            lobbyCounts = new LobbyCounts();
+
             foreach (var lobby in lobbies)
             {
-                LobbyInfo lobbyInfo = ProcessLobby(lobby);
-
-                // store lobby info
-                if (lobbyInfo.type >= 0 && lobbyInfo.type <= 3)
+                var lobbyInfo = ProcessLobby(lobby);
+                // Skip lobbies with invalid type
+                if (lobbyInfo.type < 0 || lobbyInfo.type > 3)
                 {
-                    // If in the lobby info list, move it to the list end and update its details
-                    int index = lobbyInfos.FindIndex(l => l.id == lobbyInfo.id);
-                    if (index >= 0)
-                    {
-                        lobbyInfos.RemoveAt(index);
-                    }
-                    else
-                    {
-                        Console.WriteLine("New lobby: {0} ({0})", lobbyInfo.name, lobbyInfo.id);
-                    }
-
-                    if (lobbyInfo.type == 3) 
-                    {
-                        lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                        lobbyCounts.customGameLobbies ++;
-                    }
-                    else
-                    {
-                        lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                        lobbyCounts.matchmakingLobbies ++;
-                    }
-                    lobbyInfos.Add(lobbyInfo);
+                    continue;
                 }
-            }
 
-            // Check lobbies that have disappeared from the retrieved list - they are either full or were deleted
-            // These will be at the start of the lobby info list
-            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - lobbyCounts.customGameLobbies - 1; i >= 0; i--)
-            {
-                if ( lobbyInfos[i].playerCount > 6) // Experimental workaround for SteamKit issue. This is an assumption about whether the lobby is full or was deleted. 
+                int index = lobbyInfos.FindIndex(l => l.id == lobbyInfo.id);
+                // If in the lobby info list, we remove the old info
+                if (index >= 0)
                 {
-                    Console.WriteLine("Assuming lobby is full: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
-                    // Assume the lobby is full
-                    try
-                    {
-                        var callback = await steamMatchmaking.GetLobbyData(APPID, lobbyInfos[i].id);
-                        lobbyInfos[i] = ProcessLobby(callback.Lobby);
-                    }
-                    catch
-                    {
-                        // If an exception occurs, our assumption was wrong. There will likely be a Steam disconnection.
-                        Console.WriteLine("Exception occured, the lobby but was actually deleted! :(");
-                        lobbyInfos.RemoveAt(i);
-                    }
+                    lobbyInfos.RemoveAt(index);
                 }
                 else
                 {
-                    Console.WriteLine("Assuming a lobby was deleted: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
-                    // Assume the lobby was deleted
-                    lobbyInfos.RemoveAt(i);
+                    Console.WriteLine("New lobby: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
                 }
+
+                if (lobbyInfo.type == 3) 
+                {
+                    lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
+                    lobbyCounts.customGameLobbies ++;
+                }
+                else
+                {
+                    lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
+                    lobbyCounts.matchmakingLobbies ++;
+                }
+
+                // Add the new / updated lobby info to the list end
+                lobbyInfos.Add(lobbyInfo);  
+            }
+
+            // Check cached lobbies that are not in the retrieved list - these are either full or were deleted
+            // These will be at the start of the list
+            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - lobbyCounts.customGameLobbies - 1; i >= 0; i--)
+            {
+                try
+                {
+                    var lobbyDataCallback = await steamMatchmaking.GetLobbyData(APPID, lobbyInfos[i].id);
+                    if (lobbyDataCallback.Lobby.NumMembers > 0)
+                    {
+                        var lobbyInfo = ProcessLobby(lobbyDataCallback.Lobby);
+                        if (lobbyInfo.type == 3) 
+                        {
+                            lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
+                            lobbyCounts.customGameLobbies ++;
+                        }
+                        else
+                        {
+                            lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
+                            lobbyCounts.matchmakingLobbies ++;
+                        }
+
+                        // Update info in the list
+                        lobbyInfos[i] = lobbyInfo;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Deleted lobby: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                        lobbyInfos.RemoveAt(i);
+                    }
+                }
+                catch(TaskCanceledException)
+                {
+                    Console.WriteLine("Failed to get lobby data for: {0} ({1})");
+                }       
             }
 
             // Sort by number of players
