@@ -373,7 +373,7 @@ namespace SLB
             Console.WriteLine("Saved loginkey file!");
         }
 
-        static void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
+        static async void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
         {
             if (lobbyInfos == null)
             {
@@ -408,25 +408,32 @@ namespace SLB
                 }
             }
 
-            // Check lobbies that have disappeared from the retrieved list
+            // Check lobbies that have disappeared from the retrieved list - they are either full or were deleted
             // These will be at the start of the lobby info list
             for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - 1; i >= 0; i--)
             {
-                // This check currently does not work as expected
-                /*
-                Console.WriteLine("GetLobbyData...");
-                try
+                if ( lobbyInfos[i].playerCount > 6) // Experimental workaround for SteamKit issue. This is an assumption about whether the lobby is full or was deleted. 
                 {
-                    var callback = await steamMatchmaking.GetLobbyData(APPID, lobbyInfos[i].id);
-                    lobbyInfos[i] = ProcessLobby(callback.Lobby);
-                    Console.WriteLine("Full matchmaking lobby: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    Console.WriteLine("Assuming a matchmaking lobby is full: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    // Assume the lobby is full
+                    try
+                    {
+                        var callback = await steamMatchmaking.GetLobbyData(APPID, lobbyInfos[i].id);
+                        lobbyInfos[i] = ProcessLobby(callback.Lobby);
+                    }
+                    catch
+                    {
+                        // If an exception occurs, our assumption was wrong. There will likely be a Steam disconnection.
+                        Console.WriteLine("Exception occured, the lobby but was actually deleted! :(");
+                        lobbyInfos.RemoveAt(i);
+                    }
                 }
-                catch
+                else
                 {
-                */
-                    Console.WriteLine("Matchmaking lobby disappeared: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    Console.WriteLine("Assuming a lobby was deleted: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                    // Assume the lobby was deleted
                     lobbyInfos.RemoveAt(i);
-                //}
+                }
             }
 
             // Sort by number of players
