@@ -180,7 +180,7 @@ namespace SLB
                     if (getLobbyListCallback.Result == EResult.OK)
                     {
                         Console.WriteLine("Got lobby list!");
-                        ProcessLobbyList(getLobbyListCallback.Lobbies);
+                        await ProcessLobbyList(getLobbyListCallback.Lobbies);
                     }
                     else
                     {
@@ -373,7 +373,7 @@ namespace SLB
             Console.WriteLine("Saved loginkey file!");
         }
 
-        static async void ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
+        static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
         {
             lobbyCounts = new LobbyCounts();
             if (lobbyInfos == null)
@@ -453,7 +453,7 @@ namespace SLB
             }
 
             // Sort by number of players
-            lobbyInfos.Sort((x,y) => x.type.CompareTo(y.playerCount));
+            lobbyInfos.Sort((x,y) => -x.playerCount.CompareTo(y.playerCount));
         }
 
         public static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
