@@ -73,11 +73,12 @@ namespace SLB
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.matchmakingLobbies, lobbyCounts.matchmakingPlayers, "matchmaking");
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.customGameLobbies, lobbyCounts.customGamePlayers, "custom game");
+                statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
                     if (lobbyInfo.type != 3 && lobbyInfo.playerCount < 10)
                     {
-                        statusOverview += "\n\n**Open the game and click a link below to join!**";
+                        statusOverview += "\n**Open the game and click a link below to join!**";
                         break;
                     }
                 }
@@ -130,7 +131,11 @@ namespace SLB
                     builder.AddField(map[0], map[1], true);
                     if (lobbyInfo.type == 3)
                     {
-                        builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty),true);
+                        builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                    }
+                    else
+                    {
+                        builder.AddField("\u200B", "\u200B", true);
                     }
                 }
                 else
