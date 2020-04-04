@@ -28,6 +28,7 @@ namespace SLB
 
         static readonly Color LOBBY_COLOUR = Color.Gold;
         const int ALLOCATED_MESSAGES = 6;
+        const bool SHOW_CUSTOM_GAMES = false;
 
         public static void Run()
         {
@@ -93,7 +94,7 @@ namespace SLB
             foreach (var lobbyInfo in lobbyInfos)
             {
                 // Skip displaying custom lobbies
-                if (lobbyInfo.type == 3)
+                if (lobbyInfo.type == 3 && !SHOW_CUSTOM_GAMES)
                 {
                     continue;
                 }
@@ -127,7 +128,10 @@ namespace SLB
                     builder.AddField("Event", LobbyTools.GetEvent(lobbyInfo.type, lobbyInfo.matchMode), true);
                     string[] map = LobbyTools.GetMap(lobbyInfo.type, lobbyInfo.matchMode);
                     builder.AddField(map[0], map[1], true);
-                    builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty),true);
+                    if (lobbyInfo.type == 3)
+                    {
+                        builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty),true);
+                    }
                 }
                 else
                 {
