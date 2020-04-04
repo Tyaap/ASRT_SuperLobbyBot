@@ -225,7 +225,7 @@ namespace SLB
                         }
                         else
                         {
-                            // lobby overflow
+                            // handle overflow by sending new messages
                             channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed));
                         }
                     }
@@ -237,12 +237,12 @@ namespace SLB
                     continue;
                 }     
 
-                // If not needed, delete excess message alllocation
-                if (Math.Max(ALLOCATED_MESSAGES, messages.Count) < channelMessagePair.Item2.Count)
+                // Delete excess messages, once message count falls below the desired message allocation
+                if (messages.Count <= ALLOCATED_MESSAGES && ALLOCATED_MESSAGES < channelMessagePair.Item2.Count)
                 {
                     await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES));
                     channelMessagePair.Item2.RemoveRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES);
-                }           
+                }
             }
 
             lastMessageCount = messages.Count;     
