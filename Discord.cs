@@ -27,7 +27,7 @@ namespace SLB
         const string CLOCK_FORMAT = "dd/MM/yy HH:mm";
 
         static readonly Color LOBBY_COLOUR = Color.Gold;
-        const int ALLOCATED_MESSAGES = 10;
+        const int ALLOCATED_MESSAGES = 6;
 
         public static void Run()
         {
@@ -72,6 +72,14 @@ namespace SLB
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.matchmakingLobbies, lobbyCounts.matchmakingPlayers, "matchmaking");
                 statusOverview += "\n" + LobbyCountMessage(lobbyCounts.customGameLobbies, lobbyCounts.customGamePlayers, "custom game");
+                foreach (var lobbyInfo in lobbyInfos)
+                {
+                    if (lobbyInfo.type != 3 && lobbyInfo.playerCount < 10)
+                    {
+                        statusOverview += "\n\n**Open the game and click a link below to join!**";
+                        break;
+                    }
+                }
                 messages.Add(statusOverview);
                 embeds.Add(null);
             }
@@ -99,7 +107,14 @@ namespace SLB
                     builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
                     if (lobbyInfo.type != 3)
                     {
-                        builder.WithDescription(string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id));
+                        if (lobbyInfo.playerCount < 10)
+                        {
+                            builder.WithDescription(string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id));
+                        }
+                        else
+                        {
+                             builder.WithDescription(string.Format("Lobby is full!", Steam.APPID, lobbyInfo.id));
+                        }
                     }
                     else
                     {

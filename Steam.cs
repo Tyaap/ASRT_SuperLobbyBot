@@ -490,7 +490,7 @@ namespace SLB
                     lobbyInfo.countdown = ExtractByte(data, 60) & 63;
                     lobbyInfo.state = ExtractByte(data, 22) & 3;
                     lobbyInfo.difficulty = ExtractByte(data, 62) & 3;
-                    lobbyInfo.playerCount = Math.Max(lobby.NumMembers, ExtractByte(data, data.Length*8 - 29) & 15);
+                    lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, ExtractByte(data, data.Length*8 - 29) & 15), 10);
                 }
 
                 return lobbyInfo;
