@@ -66,7 +66,7 @@ namespace SLB
             List<string> messages = new List<string>();
             List<Embed> embeds = new List<Embed>();
 
-            // Create overview message
+            // Overview message
             if (playerCount >= 0)
             {
                 string statusOverview = string.Format("**__S&ASRT lobby status — {0} GMT__**", DateTime.Now.ToString(CLOCK_FORMAT));
@@ -76,7 +76,7 @@ namespace SLB
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
-                    if (lobbyInfo.type != 3 && lobbyInfo.playerCount < 10)
+                    if (lobbyInfo.state != -1 && lobbyInfo.type != 3 && lobbyInfo.playerCount != 10)
                     {
                         statusOverview += "\n**Open the game and click a link below to join!**";
                         break;
@@ -91,7 +91,7 @@ namespace SLB
                 embeds.Add(null);
             }
 
-            // Create lobby messages
+            // Lobby messages
             foreach (var lobbyInfo in lobbyInfos)
             {
                 // Skip displaying custom lobbies
@@ -102,27 +102,31 @@ namespace SLB
 
                 EmbedBuilder builder = new EmbedBuilder();
                 builder.WithColor(LOBBY_COLOUR);
+
+                // title
                 builder.WithTitle(lobbyInfo.name);
-                builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
-                if (lobbyInfo.type >= 0)
+
+                // description
+                if (lobbyInfo.state == -1)
                 {
-                    builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
-                    if (lobbyInfo.type != 3)
-                    {
-                        if (lobbyInfo.playerCount < 10)
-                        {
-                            builder.WithDescription(string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id));
-                        }
-                        else
-                        {
-                             builder.WithDescription(string.Format("Lobby is full!", Steam.APPID, lobbyInfo.id));
-                        }
-                    }
-                    else
-                    {
-                        builder.WithDescription("Private lobby");
-                    }
+                    builder.WithDescription("Lobby initialising...");
                 }
+                else if (lobbyInfo.type == 3)
+                {
+                    builder.WithDescription("Private lobby");
+                }
+                else if (lobbyInfo.playerCount == 10)
+                {
+                    builder.WithDescription("Lobby is full!");
+                }
+                else
+                {
+                    builder.WithDescription(string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id));
+                }
+
+                // fields
+                builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
+                builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
                 if (lobbyInfo.state >= 0)
                 {
                     builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
@@ -138,14 +142,12 @@ namespace SLB
                         builder.AddField("\u200B", "\u200B", true);
                     }
                 }
-                else
-                {
-                    builder.WithDescription("Lobby initialising...");
-                }
+
                 messages.Add("");
                 embeds.Add(builder.Build());
             }
 
+            // get guilds
             IReadOnlyCollection<RestGuild> guilds = null;
             try
             {
@@ -157,15 +159,17 @@ namespace SLB
                 Console.WriteLine(e);
                 return;
             }
+
+            // process each guild
             foreach(var guild in guilds)
             {
-                // Set up the status channel in each guild
+                // set up the status channel
                 bool newChannel = !currentStatusMessages.TryGetValue(guild.Id, out var channelMessagePair);
                 if (newChannel)
                 {
                     Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
                     try{    
-                        // Look for old status channels
+                        // look for old status channels
                         var textChannels = await guild.GetTextChannelsAsync();
                         RestTextChannel statusChannel = null;
                         foreach (var channel in textChannels)
@@ -178,7 +182,7 @@ namespace SLB
                         }
 
                         List<IUserMessage> statusMessages = new List<IUserMessage>();
-                         // Reuse old messages if channel exists
+                         // reuse old messages if channel exists
                         if (statusChannel != null)
                         {
                             await foreach (var discordMessages in statusChannel.GetMessagesAsync())
@@ -191,23 +195,23 @@ namespace SLB
                                     }
                                 }
                             }
-                            // Ensure the status messages are ordered correctly
+                            // ensure the status messages are ordered correctly
                             statusMessages.Sort((x, y) => x.Timestamp.CompareTo(y.Timestamp));
 
-                            // If there are sufficient messages, assume they are being displayed as one message.
-                            // Insufficient messages, start from scratch to ensure messages displayed as one.
+                            // if there are sufficient messages, assume they are being displayed as one message.
+                            // insufficient messages, start from scratch to ensure messages displayed as one.
                             if (statusMessages.Count < ALLOCATED_MESSAGES)
                             {
                                 await statusChannel.DeleteMessagesAsync(statusMessages);
                                 statusMessages.Clear();
                             }
                         }
-                        // Create status channel if not found
+                        // create status channel if not found
                         else
                         {
                             statusChannel = await guild.CreateTextChannelAsync("xx-in-matchmaking");
                         }
-                        // Store channel/message pair
+                        // store channel/message pair
                         channelMessagePair = new Tuple<ITextChannel, List<IUserMessage>>(statusChannel, statusMessages);
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
                         Console.WriteLine("Status channel setup complete!");
@@ -220,7 +224,7 @@ namespace SLB
                     }
                 }
                 
-                // Set channel name
+                // set channel name
                 try
                 {
                     await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking";});
@@ -232,9 +236,9 @@ namespace SLB
                     continue;
                 }
 
-                // Send/update messages
-                // Case true: Ensures a new hannel has messages allocated.
-                // Case false: Update/send the appropriate subset of messages.
+                // send/update messages
+                // case true: ensure new channel has messages allocated
+                // case false: update/send the appropriate subset of messages
                 int count = newChannel ? ALLOCATED_MESSAGES : Math.Max(messages.Count, lastMessageCount);
                 try
                 {
@@ -261,7 +265,7 @@ namespace SLB
                     continue;
                 }     
 
-                // Delete excess messages, once message count falls below the desired message allocation
+                // delete excess messages once the message count falls below the target message allocation
                 if (messages.Count <= ALLOCATED_MESSAGES && ALLOCATED_MESSAGES < channelMessagePair.Item2.Count)
                 {
                     await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES));
