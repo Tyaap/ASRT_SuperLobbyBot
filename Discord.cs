@@ -170,15 +170,9 @@ namespace SLB
                             // Ensure the status messages are ordered correctly
                             statusMessages.Sort((x, y) => x.Timestamp.CompareTo(y.Timestamp));
 
-                            // Sufficient messages, we assume that these messages were combined previously.
-                            if (statusMessages.Count > ALLOCATED_MESSAGES)
-                            {
-                                // Delete excess
-                                await statusChannel.DeleteMessagesAsync(statusMessages.GetRange(ALLOCATED_MESSAGES, statusMessages.Count - ALLOCATED_MESSAGES));
-                                statusMessages.RemoveRange(ALLOCATED_MESSAGES, statusMessages.Count - ALLOCATED_MESSAGES);
-                            }
-                            // Insufficient messages, start from scratch to ensure the messages are combined.
-                            else if (statusMessages.Count < ALLOCATED_MESSAGES)
+                            // If there are sufficient messages, assume they are being displayed as one message.
+                            // Insufficient messages, start from scratch to ensure messages displayed as one.
+                            if (statusMessages.Count < ALLOCATED_MESSAGES)
                             {
                                 await statusChannel.DeleteMessagesAsync(statusMessages);
                                 statusMessages.Clear();
@@ -231,6 +225,7 @@ namespace SLB
                         }
                         else
                         {
+                            // lobby overflow
                             channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed));
                         }
                     }
@@ -240,9 +235,17 @@ namespace SLB
                     Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);                  
                     UpdateStatusError(guild.Id, e);
                     continue;
-                }                
+                }     
+
+                // If not needed, delete excess message alllocation
+                if (Math.Max(ALLOCATED_MESSAGES, messages.Count) < channelMessagePair.Item2.Count)
+                {
+                    await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES));
+                    channelMessagePair.Item2.RemoveRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES);
+                }           
             }
-            lastMessageCount = lobbyInfos.Count + 1;     
+
+            lastMessageCount = messages.Count;     
         }
 
         public static void UpdateStatusError(ulong guildId, HttpException e)
