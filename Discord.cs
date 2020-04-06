@@ -129,10 +129,11 @@ namespace SLB
                 builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
                 if (lobbyInfo.state >= 0)
                 {
-                    builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
-                    builder.AddField("Event", LobbyTools.GetEvent(lobbyInfo.type, lobbyInfo.matchMode), true);
-                    string[] map = LobbyTools.GetMap(lobbyInfo.type, lobbyInfo.matchMode);
-                    builder.AddField(map[0], map[1], true);
+                    int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);
+                    (int mapId, bool mirror) = LobbyTools.GetMapId(lobbyInfo.type, lobbyInfo.matchMode);
+                    builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, eventId, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
+                    builder.AddField("Event", LobbyTools.GetEventName(eventId), true);
+                    builder.AddField(LobbyTools.GetMapType(eventId), LobbyTools.GetMapName(eventId, mapId, mirror), true);
                     if (lobbyInfo.type == 3)
                     {
                         builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);

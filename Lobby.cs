@@ -30,11 +30,11 @@ namespace SLB
         static readonly string[] DIFFICULTIES = { "C", "B", "A", "S" };
 
 
-        public static string GetLobbyType(int lobbyType)
+        public static string GetLobbyType(int lobbyTypeId)
         {
-            return (lobbyType >=0 && lobbyType <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyType] : null;
+            return (lobbyTypeId >=0 && lobbyTypeId <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyTypeId] : null;
         }
-        public static string GetActivity(int state, int raceProgress, int countdown)
+        public static string GetActivity(int state, int eventId, int raceProgress, int countdown)
         {
             switch(state)
             {
@@ -47,85 +47,88 @@ namespace SLB
                 case 255:
                     return "Unknown";
                 default:
-                    if (raceProgress == 0)
-                        return "Race starting";
-                    else if (raceProgress == 100)
-                        return "Race finishing";
+                    if (eventId <= 2)
+                    {
+                        if (raceProgress == 0)
+                            return "Race starting";
+                        else if (raceProgress == 100)
+                            return "Race finishing";
+                        else
+                            return "Racing (" + raceProgress + "%)";
+                    }
                     else
-                        return "Racing (" + raceProgress + "%)";
+                    {
+                        if (raceProgress == 0)
+                            return "Battle starting";
+                        else if (raceProgress == 100)
+                            return "Battle finishing";
+                        else
+                            return "Battling";
+                    }
+
             }
         }
 
-        public static string GetEvent(int lobbyType, int matchMode)
+        public static int GetEventId(int lobbyType, int matchMode)
         {
-            int eventId = -1;
-
             switch (lobbyType)
             {
                 case 0:
-                    eventId = 0;
-                    break;
-
+                    return 0;
                 case 1:
                     if (matchMode < 5)
-                        eventId = 4;
+                        return 4;
                     else
-                        eventId = 3;
-                    break;
-
+                        return 3;
                 case 2:
                     matchMode %= 70;
 
                     if (matchMode > 59)
                     {
                         if (matchMode < 64)
-                            eventId = 4;
+                            return 4;
                         else
-                            eventId = 3;
-                        break;
+                            return 3;
                     }
                     else
                     {
                         if (matchMode < 20)
-                            eventId = 0;
+                            return 0;
                         else if (matchMode < 40)
-                            eventId = 1;
+                            return 1;
                         else
-                            eventId = 2;
-                        break;
+                            return 2;
                     }
 
                 case 3:
                     if (matchMode < 42)
-                        eventId = 0;
+                        return 0;
                     else if (matchMode < 84)
-                        eventId = 1;
+                        return 1;
                     else if (matchMode < 126)
-                        eventId = 2;
+                        return 2;
                     else if (matchMode < 131)
-                        eventId = 3;
+                        return 3;
                     else
-                        eventId = 4;
-                    break;
+                        return 4;
+                default:
+                    return -1; 
             }
-
-            return EVENTS[eventId];
         }
 
-        public static string[] GetMap(int lobbyType, int matchMode)
+        public static (int, bool) GetMapId(int lobbyType, int matchMode)
         {
             bool mirror = false;
-            bool arena = false;
-            int trackId = -1;
+            int mapId = -1;
 
             switch (lobbyType)
             {
                 case 0:
                     if (matchMode < 20)
-                        trackId = matchMode;
+                        mapId = matchMode;
                     else
                     {
-                        trackId = matchMode - 20;
+                        mapId = matchMode - 20;
                         mirror = true;
                     }
                     break;
@@ -134,8 +137,7 @@ namespace SLB
                     if (matchMode > 4)
                         matchMode -= 5;
 
-                    trackId = matchMode;
-                    arena = true;
+                    mapId = matchMode;
                     break;
 
                 case 2:
@@ -144,15 +146,14 @@ namespace SLB
                         if (matchMode > 69)
                             matchMode -= 10;
 
-                        trackId = matchMode % 20;
+                        mapId = matchMode % 20;
 
                         if (matchMode > 69)
                             mirror = true;
                     }
                     else
                     {
-                        trackId = matchMode % 5;
-                        arena = true;
+                        mapId = matchMode % 5;
                     }
                     break;
 
@@ -160,29 +161,36 @@ namespace SLB
                     if (matchMode < 126)
                     {
                         matchMode %= 42;
-                        trackId  = matchMode % 21;
+                        mapId  = matchMode % 21;
                         if (matchMode > 20)
                             mirror = true;
                     }
                     else
                     {
                         matchMode -= 126;
-                        trackId = matchMode % 5;
-                        arena = true;
+                        mapId = matchMode % 5;
                     }
                     break;
                 default:
-                    return null;
+                    return (-1, false);
             }
 
-            if (arena)
-            {
-                return new string[] {"Arena", ARENAS[trackId]};
-            }
-            else
-            {
-                return new string[] {"Track", TRACKS[trackId] + (mirror ? " Mirror" : "")};
-            }
+            return (mapId, mirror);
+        }
+
+        public static string GetEventName(int eventId)
+        {
+            return (eventId >=0 && eventId <= EVENTS.Length) ? EVENTS[eventId] : null;
+        }
+
+        public static string GetMapName(int eventId, int mapId, bool mirror)
+        {
+            return eventId <= 2 ? TRACKS[mapId] : ARENAS[mapId] + (mirror ? "" : " mirror");
+        }
+
+        public static string GetMapType(int eventId)
+        {
+            return eventId <= 2 ? "Track" : "Arena";
         }
 
         public static string GetDifficulty(int lobbyType, int difficulty)
