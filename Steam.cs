@@ -21,7 +21,6 @@ namespace SLB
         static bool isRunning;
         static bool loggedIn;
         static bool twoFactorReconnect = false;
-        static int timeouts = 0;
 
         public static string user, pass, loginkey;
 
