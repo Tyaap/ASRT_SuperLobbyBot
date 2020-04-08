@@ -97,8 +97,12 @@ namespace SLB
             }
             else
             {
-                messages.Add("**Not connected to Steam!"
-                    + "/nServers may be down for maintenance.**");
+                string message = "**Not connected to Steam!**";
+                if (DateTime.Now.DayOfWeek == DayOfWeek.Tuesday || DateTime.Now.DayOfWeek == DayOfWeek.Wednesday)
+                {
+                    message += "/n**Steam is likely down for normal Tuesday maintenance.**");
+                }
+                messages.Add(message);
                 embeds.Add(null);
             }
 

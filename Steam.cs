@@ -102,7 +102,7 @@ namespace SLB
                 // in order for the callbacks to get routed, they need to be handled by the manager
                 manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(CALLBACK_WAIT));
             }
-        }            Console.WriteLine("Connecting to Steam...");
+        }
 
         static void SteamConnect()
         {
