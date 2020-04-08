@@ -60,6 +60,16 @@ namespace SLB
 
         public static async Task UpdateStatus(int playerCount, LobbyCounts lobbyCounts, List<LobbyInfo> lobbyInfos)
         {
+            if (!loggedIn)
+            {
+                await LoginAsync();
+                if (!loggedIn)
+                {
+                    Console.WriteLine("Skipping Discord status message update.");
+                    return;
+                }
+            }
+
             Console.WriteLine("Updating Discord status messages...");
             
             // Message storage
@@ -87,7 +97,8 @@ namespace SLB
             }
             else
             {
-                messages.Add("Bot is not logged into Steam!");
+                messages.Add("**Not connected to Steam!"
+                    + "/nServers may be down for maintenance.**");
                 embeds.Add(null);
             }
 
@@ -344,12 +355,11 @@ namespace SLB
             return Task.CompletedTask;
         }
 
-        private static async Task DiscordSocketClient_LoggedOut()
+        private static Task DiscordSocketClient_LoggedOut()
         {
-            Console.WriteLine("Logged out of Discord, logging back on in 5...");
+            Console.WriteLine("Logged out of Discord!");
             loggedIn = false;
-            await Task.Delay(5000);
-            await LoginAsync();
+            return Task.CompletedTask;
         }
 
         public static async Task RegisterCommandsAsync()

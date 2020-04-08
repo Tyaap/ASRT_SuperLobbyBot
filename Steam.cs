@@ -20,6 +20,8 @@ namespace SLB
 
         static bool isRunning;
         static bool loggedIn;
+        static bool twoFactorReconnect = false;
+        static int timeouts = 0;
 
         public static string user, pass, loginkey;
 
@@ -41,7 +43,7 @@ namespace SLB
         // wait times in milliseconds
         const int MESSAGE_WAIT = 10000;
         const int CALLBACK_WAIT = 100;
-        const int STEAM_TIMEOUT = 20000;
+
 
         public static void Run()
         {
@@ -92,7 +94,6 @@ namespace SLB
 
             isRunning = true;
 
-            Console.WriteLine("Connecting to Steam...");
             // initiate the connection
             SteamConnect();
 
@@ -101,10 +102,11 @@ namespace SLB
                 // in order for the callbacks to get routed, they need to be handled by the manager
                 manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(CALLBACK_WAIT));
             }
-        }
+        }            Console.WriteLine("Connecting to Steam...");
 
         static void SteamConnect()
         {
+            Console.WriteLine("Connecting to Steam...");
             // if we've previously connected and saved our login key, load it
             if (File.Exists("loginkey.txt"))
             {
@@ -162,6 +164,7 @@ namespace SLB
                 catch(TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get number of current players: Timeout");
+                    steamClient.Disconnect(); // failing this simple request likely means we are disconnected from Steam
                     messageTimer.Change(MESSAGE_WAIT, -1);
                     return;
                 }
@@ -198,17 +201,15 @@ namespace SLB
             }
             else
             {
+                // display disconnection message and attempt reconnection
                 playerCount = -1;
                 lobbyCounts = new LobbyCounts();
                 lobbyInfos = new List<LobbyInfo>();
+                SteamConnect();
             }
 
-            // send discord messages
-            if (Discord.loggedIn)
-            {
-                Discord.UpdateStatus(playerCount, lobbyCounts, lobbyInfos).GetAwaiter().GetResult();
-            }
-
+            // update status messages
+            Discord.UpdateStatus(playerCount, lobbyCounts, lobbyInfos).GetAwaiter().GetResult();
             // restart the timer
             messageTimer.Change(MESSAGE_WAIT, -1);
         }
@@ -252,15 +253,17 @@ namespace SLB
 
         static void OnDisconnected(SteamClient.DisconnectedCallback callback)
         {
+            loggedIn = false;
+            Console.WriteLine("Disconnected from Steam!");
             // after recieving an AccountLogonDenied, we'll be disconnected from steam
             // so after we read an authcode from the user, we need to reconnect to begin the logon flow again
-
-            Console.WriteLine("Disconnected from Steam, reconnecting in 5...");
-
-            loggedIn = false;
-            Thread.Sleep(5000);
-
-            SteamConnect();
+            if (twoFactorReconnect)
+            {
+                Console.WriteLine("Reconnecting in 5 seconds.");
+                Thread.Sleep(5000);
+                SteamConnect();
+                twoFactorReconnect = false;
+            }
         }
 
         static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
@@ -280,25 +283,16 @@ namespace SLB
                 {
                     authCode = Web.InputRequest(string.Format("Please enter the auth code sent to the email at {0}", callback.EmailDomain));
                 }
+                twoFactorReconnect = true;
                 return;
             }
 
             if (callback.Result != EResult.OK)
             {
                 Console.WriteLine("Unable to logon to Steam: {0} / {1}", callback.Result, callback.ExtendedResult);
-                if (callback.Result == EResult.InvalidPassword)
-                {
-                    user = null;
-                    pass = null;
-                    loginkey = null;
-                    if (File.Exists("loginkey.txt"))
-                    {
-                        File.Delete("loginkey.txt");
-                    }
-                }
                 if (callback.Result == EResult.RateLimitExceeded)
                 {
-                    Console.WriteLine("Waiting for 1 hour...");
+                    Console.WriteLine("Login is rate limited, waiting for 1 hour...");
                     Thread.Sleep(TimeSpan.FromHours(1));
                 }
                 return;
