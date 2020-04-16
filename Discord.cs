@@ -32,7 +32,7 @@ namespace SLB
 
         public static void Run()
         {
-            discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig {ExclusiveBulkDelete = true});
+            discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig { ExclusiveBulkDelete = true });
             commandService = new CommandService();
             serviceProvider = new ServiceCollection()
                 .AddSingleton(discordSocketClient)
@@ -40,7 +40,7 @@ namespace SLB
                 .BuildServiceProvider();
 
             currentStatusMessages = new Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>>();
-            
+
             if (File.Exists("token.txt"))
             {
                 token = File.ReadAllText("token.txt");
@@ -71,7 +71,7 @@ namespace SLB
             }
 
             Console.WriteLine("Updating Discord status messages...");
-            
+
             // Message storage
             List<string> messages = new List<string>();
             List<Embed> embeds = new List<Embed>();
@@ -169,7 +169,7 @@ namespace SLB
             {
                 guilds = await discordSocketClient.Rest.GetGuildsAsync();
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine("Guild list retrieval failed!");
                 Console.WriteLine(e);
@@ -177,14 +177,15 @@ namespace SLB
             }
 
             // process each guild
-            foreach(var guild in guilds)
+            foreach (var guild in guilds)
             {
                 // set up the status channel
                 bool newChannel = !currentStatusMessages.TryGetValue(guild.Id, out var channelMessagePair);
                 if (newChannel)
                 {
                     Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
-                    try{    
+                    try
+                    {
                         // look for old status channels
                         var textChannels = await guild.GetTextChannelsAsync();
                         RestTextChannel statusChannel = null;
@@ -198,13 +199,13 @@ namespace SLB
                         }
 
                         List<IUserMessage> statusMessages = new List<IUserMessage>();
-                         // reuse old messages if channel exists
+                        // reuse old messages if channel exists
                         if (statusChannel != null)
                         {
                             await foreach (var discordMessages in statusChannel.GetMessagesAsync())
                             {
                                 foreach (IUserMessage discordMessage in discordMessages)
-                                { 
+                                {
                                     if (discordMessage.Author.Id == discordSocketClient.CurrentUser.Id)
                                     {
                                         statusMessages.Add(discordMessage);
@@ -232,20 +233,20 @@ namespace SLB
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
                         Console.WriteLine("Status channel setup complete!");
                     }
-                    catch(HttpException e)
+                    catch (HttpException e)
                     {
                         Console.WriteLine("Status channel setup failed!");
                         UpdateStatusError(guild.Id, e);
                         continue;
                     }
                 }
-                
+
                 // set channel name
                 try
                 {
-                    await channelMessagePair.Item1.ModifyAsync(c => {c.Name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking";});
+                    await channelMessagePair.Item1.ModifyAsync(c => { c.Name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking"; });
                 }
-                catch(HttpException e)
+                catch (HttpException e)
                 {
                     Console.WriteLine("Failed to set status channel name on server {0} ({1})", guild.Name, guild.Id);
                     UpdateStatusError(guild.Id, e);
@@ -265,7 +266,7 @@ namespace SLB
 
                         if (i < channelMessagePair.Item2.Count)
                         {
-                            await channelMessagePair.Item2[i].ModifyAsync(m => {m.Content = message; m.Embed = embed;});
+                            await channelMessagePair.Item2[i].ModifyAsync(m => { m.Content = message; m.Embed = embed; });
                         }
                         else
                         {
@@ -276,10 +277,10 @@ namespace SLB
                 }
                 catch (HttpException e)
                 {
-                    Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);                  
+                    Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);
                     UpdateStatusError(guild.Id, e);
                     continue;
-                }     
+                }
 
                 // delete excess messages once the message count falls below the target message allocation
                 if (messages.Count <= ALLOCATED_MESSAGES && ALLOCATED_MESSAGES < channelMessagePair.Item2.Count)
@@ -289,7 +290,7 @@ namespace SLB
                 }
             }
 
-            lastMessageCount = messages.Count;     
+            lastMessageCount = messages.Count;
         }
 
         public static void UpdateStatusError(ulong guildId, HttpException e)
@@ -322,7 +323,7 @@ namespace SLB
             }
             else
             {
-                return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby");;
+                return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby"); ;
             }
         }
 
@@ -330,7 +331,7 @@ namespace SLB
         {
             Console.WriteLine("Logging into Discord...");
             try
-            {      
+            {
                 await discordSocketClient.LoginAsync(TokenType.Bot, token);
                 await discordSocketClient.StartAsync();
             }

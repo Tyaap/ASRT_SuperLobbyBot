@@ -34,7 +34,7 @@ namespace SLB
                     webBuilder.UseStartup<Startup>();
                 });
 
-        public static void Ping(object state) 
+        public static void Ping(object state)
         {
             Console.WriteLine("Pinging web API...");
             client.GetStringAsync(HOST_ADDRESS);

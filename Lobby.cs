@@ -23,7 +23,7 @@ namespace SLB
 
     public static class LobbyTools
     {
-        static readonly string[] LOBBYTYPES = { "Matchmaking Race", "Matchmaking Arena", "Matchmaking Lucky Dip", "Custom Game"};
+        static readonly string[] LOBBYTYPES = { "Matchmaking Race", "Matchmaking Arena", "Matchmaking Lucky Dip", "Custom Game" };
         static readonly string[] EVENTS = { "Normal Race", "Battle Race", "Boost Race", "Capture the Chao", "Battle Arena" };
         static readonly string[] TRACKS = { "Seasonal Shrines", "Graffiti City", "Adder's Lair", "Chilly Castle", "Graveyard Gig", "Carrier Zone", "Galactic Parade", "Temple Trouble", "Sanctuary Falls", "Dream Valley", "Race of Ages", "Ocean View", "Samba Studios", "Dragon Canyon", "Burning Depths", "Roulette Road", "Shibuya Downtown", "Egg Hangar", "Sunshine Tour", "Rogue's Landing", "Outrun Bay" };
         static readonly string[] ARENAS = { "Neon Docks", "Battle Bay", "Creepy Courtyard", "Rooftop Rumble", "Monkey Ball Park" };
@@ -32,11 +32,11 @@ namespace SLB
 
         public static string GetLobbyType(int lobbyTypeId)
         {
-            return (lobbyTypeId >=0 && lobbyTypeId <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyTypeId] : null;
+            return (lobbyTypeId >= 0 && lobbyTypeId <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyTypeId] : null;
         }
         public static string GetActivity(int state, int eventId, int raceProgress, int countdown)
         {
-            switch(state)
+            switch (state)
             {
                 case 0:
                     return "Waiting";
@@ -112,7 +112,7 @@ namespace SLB
                     else
                         return 4;
                 default:
-                    return -1; 
+                    return -1;
             }
         }
 
@@ -161,7 +161,7 @@ namespace SLB
                     if (matchMode < 126)
                     {
                         matchMode %= 42;
-                        mapId  = matchMode % 21;
+                        mapId = matchMode % 21;
                         if (matchMode > 20)
                             mirror = true;
                     }
@@ -180,7 +180,7 @@ namespace SLB
 
         public static string GetEventName(int eventId)
         {
-            return (eventId >=0 && eventId <= EVENTS.Length) ? EVENTS[eventId] : null;
+            return (eventId >= 0 && eventId <= EVENTS.Length) ? EVENTS[eventId] : null;
         }
 
         public static string GetMapName(int eventId, int mapId, bool mirror)

@@ -30,7 +30,7 @@ namespace SLB
         static int playerCount;
         static LobbyCounts lobbyCounts;
         static List<LobbyInfo> lobbyInfos;
-        
+
 
         // timer for updating message
         static Timer messageTimer;
@@ -50,7 +50,7 @@ namespace SLB
             // if we've previously connected and saved our cellid, load it
             if (File.Exists("cellid.txt"))
             {
-                if (!uint.TryParse(File.ReadAllText( "cellid.txt"), out cellid))
+                if (!uint.TryParse(File.ReadAllText("cellid.txt"), out cellid))
                 {
                     Console.WriteLine("Error parsing cell id from cellid.txt. Continuing with cellid 0.");
                     cellid = 0;
@@ -133,7 +133,7 @@ namespace SLB
         static async void OnTimerTick(object state)
         {
             // web status
-            if (!Web.waitingForResponse) 
+            if (!Web.waitingForResponse)
             {
                 Web.message = string.Format(
                     "Discord logged in: {0}\n" +
@@ -160,7 +160,7 @@ namespace SLB
                         return;
                     }
                 }
-                catch(TaskCanceledException)
+                catch (TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get number of current players: Timeout");
                     steamClient.Disconnect(); // failing this simple request likely means we are disconnected from Steam
@@ -172,9 +172,9 @@ namespace SLB
                 Console.WriteLine("Getting lobby list...");
                 try
                 {
-                    var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID, 
-                        new List<SteamMatchmaking.Lobby.Filter>() 
-                        { 
+                    var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID,
+                        new List<SteamMatchmaking.Lobby.Filter>()
+                        {
                             new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
                             new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
                         }
@@ -191,7 +191,7 @@ namespace SLB
                         return;
                     }
                 }
-                catch(TaskCanceledException)
+                catch (TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get lobby list: Timeout");
                     messageTimer.Change(MESSAGE_WAIT, -1);
@@ -235,7 +235,7 @@ namespace SLB
                 // this value will be null (which is the default) for our first logon attempt
                 LoginKey = loginkey,
                 ShouldRememberPassword = true,
-                
+
                 // we pass in an additional authcode
                 // this value will be null (which is the default) for our first logon attempt
                 AuthCode = authCode,
@@ -274,7 +274,7 @@ namespace SLB
             {
                 Console.WriteLine("This account is SteamGuard protected!");
 
-                if ( is2FA )
+                if (is2FA)
                 {
                     twoFactorAuth = Web.InputRequest("Please enter your 2 factor auth code from your authenticator app.");
                 }
@@ -298,7 +298,7 @@ namespace SLB
             }
             loggedIn = true;
             Console.WriteLine("Logged into Steam!");
-            
+
             // save the current cellid somewhere. if we lose our saved server list, we can use this when retrieving
             // servers from the Steam Directory.
             Console.WriteLine("Saving celliid file...");
@@ -337,7 +337,7 @@ namespace SLB
             }
 
             // inform the steam servers that we're accepting this sentry file
-            steamUser.SendMachineAuthResponse( new SteamUser.MachineAuthDetails
+            steamUser.SendMachineAuthResponse(new SteamUser.MachineAuthDetails
             {
                 JobID = callback.JobID,
 
@@ -353,7 +353,7 @@ namespace SLB
                 OneTimePassword = callback.OneTimePassword,
 
                 SentryFileHash = sentryHash,
-            } );
+            });
 
             Console.WriteLine("Saved sentry file!");
         }
@@ -361,12 +361,12 @@ namespace SLB
         static void OnLoginKey(SteamUser.LoginKeyCallback callback)
         {
             Console.WriteLine("Saving loginkey file...");
-            File.WriteAllLines("loginkey.txt", new string[] {user, callback.LoginKey});
+            File.WriteAllLines("loginkey.txt", new string[] { user, callback.LoginKey });
             steamClient.GetHandler<SteamUser>().AcceptNewLoginKey(callback);
             Console.WriteLine("Saved loginkey file!");
         }
 
-        static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies) 
+        static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
         {
             lobbyCounts = new LobbyCounts();
             if (lobbyInfos == null)
@@ -394,19 +394,19 @@ namespace SLB
                     Console.WriteLine("New lobby: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
                 }
 
-                if (lobbyInfo.type == 3) 
+                if (lobbyInfo.type == 3)
                 {
                     lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                    lobbyCounts.customGameLobbies ++;
+                    lobbyCounts.customGameLobbies++;
                 }
                 else
                 {
                     lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                    lobbyCounts.matchmakingLobbies ++;
+                    lobbyCounts.matchmakingLobbies++;
                 }
 
                 // Add the new / updated lobby info to the list end
-                lobbyInfos.Add(lobbyInfo);  
+                lobbyInfos.Add(lobbyInfo);
             }
 
             // Check cached lobbies that are not in the retrieved list - these are either full or were deleted
@@ -419,15 +419,15 @@ namespace SLB
                     if (lobbyDataCallback.Lobby.NumMembers > 0)
                     {
                         var lobbyInfo = ProcessLobby(lobbyDataCallback.Lobby);
-                        if (lobbyInfo.type == 3) 
+                        if (lobbyInfo.type == 3)
                         {
                             lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                            lobbyCounts.customGameLobbies ++;
+                            lobbyCounts.customGameLobbies++;
                         }
                         else
                         {
                             lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                            lobbyCounts.matchmakingLobbies ++;
+                            lobbyCounts.matchmakingLobbies++;
                         }
 
                         // Update info in the list
@@ -439,54 +439,54 @@ namespace SLB
                         lobbyInfos.RemoveAt(i);
                     }
                 }
-                catch(TaskCanceledException)
+                catch (TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get lobby data for: {0} ({1})");
-                }       
+                }
             }
 
             // Sort by number of players
-            lobbyInfos.Sort((x,y) => -x.playerCount.CompareTo(y.playerCount));
+            lobbyInfos.Sort((x, y) => -x.playerCount.CompareTo(y.playerCount));
         }
 
         public static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
         {
             // New empty lobby info
-                LobbyInfo lobbyInfo = new LobbyInfo() 
-                {
-                    name = "Lobby",
-                    id = lobby.SteamID.ConvertToUInt64(),
-                    playerCount = lobby.NumMembers,
-                    type = -1,
-                    matchMode = -1,
-                    raceProgress = -1,
-                    countdown = -1,
-                    state = -1,
-                    difficulty = -1,
-                };
+            LobbyInfo lobbyInfo = new LobbyInfo()
+            {
+                name = "Lobby",
+                id = lobby.SteamID.ConvertToUInt64(),
+                playerCount = lobby.NumMembers,
+                type = -1,
+                matchMode = -1,
+                raceProgress = -1,
+                countdown = -1,
+                state = -1,
+                difficulty = -1,
+            };
 
-                // name
-                lobby.Metadata.TryGetValue("name", out lobbyInfo.name);
+            // name
+            lobby.Metadata.TryGetValue("name", out lobbyInfo.name);
 
-                // type
-                if (lobby.Metadata.TryGetValue("type", out string value) && int.TryParse(value, out lobbyInfo.type))
-                {
-                    lobbyInfo.type -= 1549;              
-                } 
+            // type
+            if (lobby.Metadata.TryGetValue("type", out string value) && int.TryParse(value, out lobbyInfo.type))
+            {
+                lobbyInfo.type -= 1549;
+            }
 
-                // Finer details
-                if (lobby.Metadata.TryGetValue("lobbydata", out value))
-                {
-                    byte[] data = Convert.FromBase64String(value);
-                    lobbyInfo.matchMode = ExtractByte(data, 8);
-                    lobbyInfo.raceProgress = ExtractByte(data, 77);
-                    lobbyInfo.countdown = ExtractByte(data, 60) & 63;
-                    lobbyInfo.state = ExtractByte(data, 22) & 3;
-                    lobbyInfo.difficulty = ExtractByte(data, 62) & 3;
-                    lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, ExtractByte(data, data.Length*8 - 29) & 15), 10);
-                }
+            // Finer details
+            if (lobby.Metadata.TryGetValue("lobbydata", out value))
+            {
+                byte[] data = Convert.FromBase64String(value);
+                lobbyInfo.matchMode = ExtractByte(data, 8);
+                lobbyInfo.raceProgress = ExtractByte(data, 77);
+                lobbyInfo.countdown = ExtractByte(data, 60) & 63;
+                lobbyInfo.state = ExtractByte(data, 22) & 3;
+                lobbyInfo.difficulty = ExtractByte(data, 62) & 3;
+                lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, ExtractByte(data, data.Length * 8 - 29) & 15), 10);
+            }
 
-                return lobbyInfo;
+            return lobbyInfo;
         }
 
         public static byte ExtractByte(byte[] bytes, int bitOffset)
