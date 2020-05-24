@@ -2,7 +2,7 @@
 Discord bot for displaying S&ASRT lobbies.
 
 # Config
-Environment variables: $DISCORDTOKEN $STEAMUSER $STEAMPASS
+Environment variables: $DISCORDTOKEN $STEAMUSER $STEAMPASS  
 web.cs -> HOST_ADDRESS = "<heroku-app-name>.herokuapp.com"
 
 # Build
@@ -20,4 +20,4 @@ heroku container:release web -a <heroku-app-name>
 ```
 
 # Web status
-<heroku-app-name>.herokuapp.com
+'<heroku-app-name>.herokuapp.com'
