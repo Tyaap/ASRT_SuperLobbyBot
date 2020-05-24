@@ -20,4 +20,4 @@ heroku container:release web -a <heroku-app-name>
 ```
 
 # Web status
-'<heroku-app-name>.herokuapp.com'
+`<heroku-app-name>.herokuapp.com
