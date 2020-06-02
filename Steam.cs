@@ -40,7 +40,7 @@ namespace SLB
         public const int APPID = 212480;
 
         // wait times in milliseconds
-        const int MESSAGE_WAIT = 10000;
+        public static int message_wait = 10000;
         const int CALLBACK_WAIT = 100;
 
 
@@ -89,7 +89,7 @@ namespace SLB
             manager.Subscribe<SteamUser.LoginKeyCallback>(OnLoginKey);
 
             // message update timer
-            messageTimer = new Timer(OnTimerTick, null, MESSAGE_WAIT, -1);
+            messageTimer = new Timer(OnTimerTick, null, message_wait, -1);
 
             isRunning = true;
 
@@ -156,7 +156,7 @@ namespace SLB
                     else
                     {
                         Console.WriteLine("Failed to get number of current players: {0}", numberOfPlayersCallback.Result);
-                        messageTimer.Change(MESSAGE_WAIT, -1);
+                        messageTimer.Change(message_wait, -1);
                         return;
                     }
                 }
@@ -164,7 +164,7 @@ namespace SLB
                 {
                     Console.WriteLine("Failed to get number of current players: Timeout");
                     steamClient.Disconnect(); // failing this simple request likely means we are disconnected from Steam
-                    messageTimer.Change(MESSAGE_WAIT, -1);
+                    messageTimer.Change(message_wait, -1);
                     return;
                 }
 
@@ -187,14 +187,14 @@ namespace SLB
                     else
                     {
                         Console.WriteLine("Failed to get lobby list: {0}", getLobbyListCallback.Result);
-                        messageTimer.Change(MESSAGE_WAIT, -1);
+                        messageTimer.Change(message_wait, -1);
                         return;
                     }
                 }
                 catch (TaskCanceledException)
                 {
                     Console.WriteLine("Failed to get lobby list: Timeout");
-                    messageTimer.Change(MESSAGE_WAIT, -1);
+                    messageTimer.Change(message_wait, -1);
                     return;
                 }
             }
@@ -210,7 +210,7 @@ namespace SLB
             // update status messages
             Discord.UpdateStatus(playerCount, lobbyCounts, lobbyInfos).GetAwaiter().GetResult();
             // restart the timer
-            messageTimer.Change(MESSAGE_WAIT, -1);
+            messageTimer.Change(message_wait, -1);
         }
 
         static void OnConnected(SteamClient.ConnectedCallback callback)
