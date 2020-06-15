@@ -29,6 +29,7 @@ namespace SLB
         static readonly Color LOBBY_COLOUR = Color.Gold;
         const int ALLOCATED_MESSAGES = 6;
         const bool SHOW_CUSTOM_GAMES = false;
+        const bool FULL_LOBBY_JOINABLE = true;
 
         public static void Run()
         {
@@ -86,7 +87,7 @@ namespace SLB
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
-                    if (lobbyInfo.state != -1 && lobbyInfo.type != 3 && lobbyInfo.playerCount != 10)
+                    if (lobbyInfo.state != -1 && lobbyInfo.type != 3 && (lobbyInfo.playerCount != 10 || FULL_LOBBY_JOINABLE))
                     {
                         statusOverview += "\n**Open the game and click a link below to join!**";
                         break;
@@ -130,7 +131,7 @@ namespace SLB
                 {
                     builder.WithDescription("Private lobby");
                 }
-                else if (lobbyInfo.playerCount == 10)
+                else if (lobbyInfo.playerCount == 10 && !FULL_LOBBY_JOINABLE)
                 {
                     builder.WithDescription("Lobby is full!");
                 }
