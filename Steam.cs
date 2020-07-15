@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamKit2;
@@ -477,23 +478,107 @@ namespace SLB
             // Finer details
             if (lobby.Metadata.TryGetValue("lobbydata", out value))
             {
-                byte[] data = Convert.FromBase64String(value);
-                lobbyInfo.matchMode = ExtractByte(data, 8);
-                lobbyInfo.raceProgress = ExtractByte(data, 77);
-                lobbyInfo.countdown = ExtractByte(data, 60) & 63;
-                lobbyInfo.state = ExtractByte(data, 22) & 3;
-                lobbyInfo.difficulty = ExtractByte(data, 62) & 3;
-                lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, ExtractByte(data, data.Length * 8 - 29) & 15), 10);
+                LobbyDetails details = ProcessLobbyDetails(value);
+                lobbyInfo.matchMode = details.matchMode;
+                lobbyInfo.raceProgress = details.progressPercentage;
+                lobbyInfo.countdown = details.countdownTime;
+                //lobbyInfo.state = details.timerState & 3;
+                lobbyInfo.state = ExtractByte(Convert.FromBase64String(value), 22) & 3; // old code
+                lobbyInfo.difficulty = details.difficulty;
+                lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, details.playerCount), 10);
             }
 
             return lobbyInfo;
         }
 
+        /////////////// OLD CODE
         public static byte ExtractByte(byte[] bytes, int bitOffset)
         {
             int shortOffset = bitOffset / 8;
             short data = BitConverter.ToInt16(new byte[] { bytes[shortOffset + 1], bytes[shortOffset] }, 0);
             return (byte)(data >> (8 - bitOffset % 8));
+        }
+        ///////////////
+
+        public static LobbyDetails ProcessLobbyDetails(string data)
+        {
+            byte[] bytes = Convert.FromBase64String(data);
+            LobbyDetails lobbyData = new LobbyDetails() 
+            {
+                unknown1 = ExtractBits(bytes, 0, 1) == 1,
+                usingScore = ExtractBits(bytes, 1, 1) == 1,
+                lobbyType = (byte)ExtractBits(bytes, 2, 6),
+                matchMode = (byte)ExtractBits(bytes, 8, 8),
+                unknown2 = (byte)ExtractBits(bytes, 16, 4),
+                timerState = (byte)ExtractBits(bytes, 20, 4),
+                unknown3 = (byte)ExtractBits(bytes, 24, 3),
+                unknown4 = (byte)ExtractBits(bytes, 27, 3),
+                unknown5 = (byte)ExtractBits(bytes, 30, 8),
+                unknown6 = (uint)ExtractBits(bytes, 38, 24),
+                countdownTime = (byte)ExtractBits(bytes, 62, 6),
+                difficulty = (byte)ExtractBits(bytes, 68, 2),
+                unknown7 = (byte)ExtractBits(bytes, 70, 4),
+                unknown8 = (byte)ExtractBits(bytes, 74, 4),
+                progressPercentage = (byte)ExtractBits(bytes, 78, 7),
+                unknown9 = (ushort)ExtractBits(bytes, 85, 16),
+            };
+
+            byte hostNameLength = (byte)ExtractBits(bytes, 101, 6);
+            byte[] hostName = new byte[hostNameLength];
+            for (int i = 0; i < hostNameLength; i++)
+            {
+                hostName[i] = (byte)ExtractBits(bytes, 107 + i * 8, 8);
+            }
+            lobbyData.hostName = Encoding.UTF8.GetString(hostName);
+            lobbyData.unknown10 = (byte)ExtractBits(bytes, 107 + hostNameLength * 8, 4);
+            lobbyData.playerCount = (byte)ExtractBits(bytes, 111 + hostNameLength * 8, 4);
+            lobbyData.unknown11 = (ushort)ExtractBits(bytes, 115 + hostNameLength * 8, 16);
+
+            return lobbyData;
+        }
+
+        public static ulong ExtractBits(byte[] bytes, int bitOffset, int bitLength)
+        {
+            int byteOffset = bitOffset / 8;
+            int bitEnd = bitOffset + bitLength;
+            int bitRemainder = bitEnd % 8;
+            int byteEnd = bitEnd / 8 + (bitRemainder > 0 ? 1 : 0);
+            int byteLength =  byteEnd - byteOffset;
+
+            ulong data;
+            List<byte> tmp = new List<byte>(bytes[byteOffset..byteEnd]);
+            tmp.Reverse();
+            if (byteLength <= 1)
+            {
+                data = tmp[0];
+            }
+            else if (byteLength <= 2)
+            {
+                data = BitConverter.ToUInt16(tmp.ToArray());
+            }
+            else if (byteLength <= 4)
+            {
+                if (byteLength == 3)
+                {
+                    tmp.Add(0);
+                }
+                data = BitConverter.ToUInt32(tmp.ToArray());
+            }
+            else
+            {
+                while (tmp.Count < 8)
+                {
+                    tmp.Add(0);
+                }
+                data = BitConverter.ToUInt64(tmp.ToArray());
+            }
+
+            if (bitRemainder > 0)
+            {
+                data >>= (8 - bitRemainder);
+            }
+
+            return data & ((1ul << bitLength) - 1);
         }
     }
 }

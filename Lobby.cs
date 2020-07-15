@@ -13,6 +13,30 @@ namespace SLB
         public int difficulty;
     }
 
+    struct LobbyDetails
+        {
+            public bool unknown1;
+            public bool usingScore;
+            public byte lobbyType;
+            public byte matchMode;
+            public byte unknown2;
+            public byte timerState;
+            public byte unknown3;
+            public byte unknown4;
+            public byte unknown5;
+            public uint unknown6;
+            public byte countdownTime;
+            public byte difficulty;
+            public byte unknown7;
+            public byte unknown8;
+            public byte progressPercentage;
+            public ushort unknown9;
+            public string hostName;
+            public byte unknown10;
+            public byte playerCount;
+            public ushort unknown11;
+        }
+
     public struct LobbyCounts
     {
         public int matchmakingLobbies;
