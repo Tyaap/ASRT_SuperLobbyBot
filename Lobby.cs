@@ -20,9 +20,9 @@ namespace SLB
             public byte lobbyType;
             public byte matchMode;
             public byte unknown2;
-            public byte timerState;
             public byte unknown3;
             public byte unknown4;
+            public byte timerState;
             public byte unknown5;
             public uint unknown6;
             public byte countdownTime;

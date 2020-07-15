@@ -482,23 +482,13 @@ namespace SLB
                 lobbyInfo.matchMode = details.matchMode;
                 lobbyInfo.raceProgress = details.progressPercentage;
                 lobbyInfo.countdown = details.countdownTime;
-                //lobbyInfo.state = details.timerState & 3;
-                lobbyInfo.state = ExtractByte(Convert.FromBase64String(value), 22) & 3; // old code
+                lobbyInfo.state = details.timerState;
                 lobbyInfo.difficulty = details.difficulty;
                 lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, details.playerCount), 10);
             }
 
             return lobbyInfo;
         }
-
-        /////////////// OLD CODE
-        public static byte ExtractByte(byte[] bytes, int bitOffset)
-        {
-            int shortOffset = bitOffset / 8;
-            short data = BitConverter.ToInt16(new byte[] { bytes[shortOffset + 1], bytes[shortOffset] }, 0);
-            return (byte)(data >> (8 - bitOffset % 8));
-        }
-        ///////////////
 
         public static LobbyDetails ProcessLobbyDetails(string data)
         {
@@ -510,9 +500,9 @@ namespace SLB
                 lobbyType = (byte)ExtractBits(bytes, 2, 6),
                 matchMode = (byte)ExtractBits(bytes, 8, 8),
                 unknown2 = (byte)ExtractBits(bytes, 16, 4),
-                timerState = (byte)ExtractBits(bytes, 20, 4),
-                unknown3 = (byte)ExtractBits(bytes, 24, 3),
-                unknown4 = (byte)ExtractBits(bytes, 27, 3),
+                unknown3 = (byte)ExtractBits(bytes, 20, 4),
+                unknown4 = (byte)ExtractBits(bytes, 24, 3),
+                timerState = (byte)ExtractBits(bytes, 27, 3),
                 unknown5 = (byte)ExtractBits(bytes, 30, 8),
                 unknown6 = (uint)ExtractBits(bytes, 38, 24),
                 countdownTime = (byte)ExtractBits(bytes, 62, 6),

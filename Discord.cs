@@ -9,7 +9,6 @@ using Discord.Net;
 using Discord.Rest;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace SLB
 {
