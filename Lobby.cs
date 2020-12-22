@@ -209,7 +209,7 @@ namespace SLB
 
         public static string GetMapName(int eventId, int mapId, bool mirror)
         {
-            return eventId <= 2 ? TRACKS[mapId] : ARENAS[mapId] + (mirror ? "" : " mirror");
+            return eventId <= 2 ? TRACKS[mapId] : ARENAS[mapId] + (mirror ? " mirror" : "");
         }
 
         public static string GetMapType(int eventId)
