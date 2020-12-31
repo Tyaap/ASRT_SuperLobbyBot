@@ -19,17 +19,16 @@ namespace SLB
         private static IServiceProvider serviceProvider;
         public static string token;
         public static bool loggedIn;
-        // messages, organised by guild and channel
-        public static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
-        public static int lastMessageCount;
+        private static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
+        private static int lastMessageCount;
+        private static DateTime channelUpdateTime;
 
-        // message clock format
-        const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
+        private const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
+        private static readonly Color LOBBY_COLOUR = Color.Gold;
+        private const int ALLOCATED_MESSAGES = 6;
+        private const bool SHOW_CUSTOM_GAMES = false;
+        private const bool FULL_LOBBY_JOINABLE = true;
 
-        static readonly Color LOBBY_COLOUR = Color.Gold;
-        const int ALLOCATED_MESSAGES = 6;
-        const bool SHOW_CUSTOM_GAMES = false;
-        const bool FULL_LOBBY_JOINABLE = true;
 
         public static void Run()
         {
@@ -251,10 +250,11 @@ namespace SLB
                 try
                 {
                     string name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking";
-                    if (!channelMessagePair.Item1.Name.Equals(name))
+                    // only update if the channel name has changed and it has been at least 5 minutes since the last update (Discord rate limit)
+                    if (DateTime.Now.Subtract(channelUpdateTime).TotalMinutes >= 5 && !channelMessagePair.Item1.Name.Equals(name))
                     {
-                        Console.WriteLine("channelMessagePair.Item1.ModifyAsync(c => { c.Name = name; })");
                         await channelMessagePair.Item1.ModifyAsync(c => { c.Name = name; });
+                        channelUpdateTime = DateTime.Now;
                     }
                 }
                 catch (HttpException e)
