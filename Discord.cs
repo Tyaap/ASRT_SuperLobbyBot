@@ -20,12 +20,13 @@ namespace SLB
         public static string token;
         public static bool loggedIn;
         private static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
+
+        public static int allocatedMessageCount;
         private static int lastMessageCount;
         private static DateTime channelUpdateTime;
 
         private const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
         private static readonly Color LOBBY_COLOUR = Color.Gold;
-        private const int ALLOCATED_MESSAGES = 6;
         private const bool SHOW_CUSTOM_GAMES = false;
         private const bool FULL_LOBBY_JOINABLE = true;
 
@@ -167,7 +168,6 @@ namespace SLB
             IReadOnlyCollection<RestGuild> guilds = null;
             try
             {
-                Console.WriteLine("discordSocketClient.Rest.GetGuildsAsync()");
                 guilds = await discordSocketClient.Rest.GetGuildsAsync();
             }
             catch (Exception e)
@@ -188,7 +188,6 @@ namespace SLB
                     try
                     {
                         // look for old status channels
-                        Console.WriteLine("guild.GetTextChannelsAsync()");
                         var textChannels = await guild.GetTextChannelsAsync();
                         RestTextChannel statusChannel = null;
                         foreach (var channel in textChannels)
@@ -204,7 +203,6 @@ namespace SLB
                         // reuse old messages if channel exists
                         if (statusChannel != null)
                         {
-                            Console.WriteLine("statusChannel.GetMessagesAsync()");
                             await foreach (var discordMessages in statusChannel.GetMessagesAsync())
                             {
                                 foreach (IUserMessage discordMessage in discordMessages)
@@ -220,9 +218,9 @@ namespace SLB
 
                             // if there are sufficient messages, assume they are being displayed as one message.
                             // insufficient messages, start from scratch to ensure messages displayed as one.
-                            if (statusMessages.Count < ALLOCATED_MESSAGES)
+                            if (statusMessages.Count < allocatedMessageCount)
                             {
-                                Console.WriteLine("statusChannel.DeleteMessagesAsync(statusMessages)");
+                                Console.WriteLine("Insufficient messages, starting from scratch...");
                                 await statusChannel.DeleteMessagesAsync(statusMessages);
                                 statusMessages.Clear();
                             }
@@ -230,7 +228,6 @@ namespace SLB
                         // create status channel if not found
                         else
                         {
-                            Console.WriteLine("guild.CreateTextChannelAsync(xx-in-matchmaking)");
                             statusChannel = await guild.CreateTextChannelAsync("xx-in-matchmaking");
                         }
                         // store channel/message pair
@@ -267,7 +264,7 @@ namespace SLB
                 // send/update messages
                 // case true: ensure new channel has messages allocated
                 // case false: update/send the appropriate subset of messages
-                int count = newChannel ? ALLOCATED_MESSAGES : Math.Max(messages.Count, lastMessageCount);
+                int count = newChannel ? allocatedMessageCount : Math.Max(messages.Count, lastMessageCount);
                 try
                 {
                     for (int i = 0; i < count; i++)
@@ -279,14 +276,12 @@ namespace SLB
                         {
                             if (!channelMessagePair.Item2[i].Content.Equals(message) || string.IsNullOrEmpty(message)) // Empty message -> assume it is an embed, so update it
                             {
-                                Console.WriteLine("channelMessagePair.Item2[i].ModifyAsync(m => { m.Content = message; m.Embed = embed; })");
                                 await channelMessagePair.Item2[i].ModifyAsync(m => { m.Content = message; m.Embed = embed; });
                             }
                         }
                         else
                         {
                             // handle overflow by sending new messages
-                            Console.WriteLine("channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed))");
                             channelMessagePair.Item2.Add(await channelMessagePair.Item1.SendMessageAsync(message, embed: embed));
                         }
                         System.Threading.Thread.Sleep(500); // 0.5 second delay between messages
@@ -300,11 +295,11 @@ namespace SLB
                 }
 
                 // delete excess messages once the message count falls below the target message allocation
-                if (messages.Count <= ALLOCATED_MESSAGES && ALLOCATED_MESSAGES < channelMessagePair.Item2.Count)
+                if (messages.Count <= allocatedMessageCount && allocatedMessageCount < channelMessagePair.Item2.Count)
                 {
-                    Console.WriteLine("channelMessagePair.Item1.DeleteMessagesAsync()");
-                    await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES));
-                    channelMessagePair.Item2.RemoveRange(ALLOCATED_MESSAGES, channelMessagePair.Item2.Count - ALLOCATED_MESSAGES);
+                    Console.WriteLine("Deleting excess messages...");
+                    await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(allocatedMessageCount, channelMessagePair.Item2.Count - allocatedMessageCount));
+                    channelMessagePair.Item2.RemoveRange(allocatedMessageCount, channelMessagePair.Item2.Count - allocatedMessageCount);
                 }
             }
 

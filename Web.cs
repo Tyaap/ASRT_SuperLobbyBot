@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Threading;
 using System.Net.Http;
 using System;
@@ -29,6 +30,11 @@ namespace SLB
 
         public static IHostBuilder CreateHostBuilder() =>
             Host.CreateDefaultBuilder()
+            .ConfigureLogging((logging) =>
+                {
+                    // clear default logging providers
+                    logging.ClearProviders();
+                })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseStartup<Startup>();
