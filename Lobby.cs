@@ -1,6 +1,6 @@
 namespace SLB
 {
-    public struct LobbyInfo
+    public class LobbyInfo
     {
         public string name;
         public ulong id;
@@ -11,6 +11,7 @@ namespace SLB
         public int matchMode;
         public int state;
         public int difficulty;
+        public bool dontHide; // don't hide this lobby in status messages
     }
 
     struct LobbyDetails

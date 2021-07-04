@@ -9,6 +9,7 @@ using Discord.Net;
 using Discord.Rest;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace SLB
 {
@@ -30,6 +31,7 @@ namespace SLB
         private const bool SHOW_CUSTOM_GAMES = false;
         private const bool FULL_LOBBY_JOINABLE = true;
 
+        private static HashSet<ulong> dontHideLobby = new HashSet<ulong>();
 
         public static void Run()
         {
@@ -55,12 +57,50 @@ namespace SLB
             discordSocketClient.Log += DiscordSocketClient_Log;
             discordSocketClient.LoggedIn += DiscordSocketClient_LoggedIn;
             discordSocketClient.LoggedOut += DiscordSocketClient_LoggedOut;
+            discordSocketClient.MessageReceived += OnMessageRecieved;
             RegisterCommandsAsync().GetAwaiter().GetResult();
             LoginAsync().GetAwaiter().GetResult();
         }
 
+        public static async Task OnMessageRecieved(SocketMessage message)
+        {
+            Match m = Regex.Match(message.Content, @"steam:\/\/joinlobby\/212480\/[0-9]+");
+            if (m.Success)
+            {
+                Console.WriteLine("OnMessageRecieved: Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
+                ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
+                LobbyInfo lobbyInfo = Steam.lobbyInfos.Find(x => x.id == id);
+                if (lobbyInfo == null || lobbyInfo.type != 3 || lobbyInfo.dontHide)
+                {
+                    return; // custom lobby does not exist or it was already added
+                }
+                dontHideLobby.Add(id);
+                Console.WriteLine("OnMessageRecieved: Added lobby to the status channel!");
+                if(currentStatusMessages.TryGetValue((message.Channel as SocketGuildChannel).Guild.Id, out var channelMessagePair))
+                {
+                    await message.Channel.SendMessageAsync("Added " + lobbyInfo.name + " to " + channelMessagePair.Item1.Mention + "!");
+                }          
+            }
+        }        
+
         public static async Task UpdateStatus(int playerCount, LobbyCounts lobbyCounts, List<LobbyInfo> lobbyInfos)
         {
+            // check if any lobbies need unhiding
+            HashSet<ulong> dontHideLobbyNew = new HashSet<ulong>();
+            foreach(var lobbyInfo in lobbyInfos)
+            {
+                if (lobbyInfo.type != 3)
+                {
+                    continue;
+                }
+                if (dontHideLobby.Contains(lobbyInfo.id))
+                {
+                    lobbyInfo.dontHide = true;
+                    dontHideLobbyNew.Add(lobbyInfo.id);
+                }
+            }
+            dontHideLobby = dontHideLobbyNew; // removed any lobbies that no longer exist
+
             if (!loggedIn)
             {
                 await LoginAsync();
@@ -87,7 +127,7 @@ namespace SLB
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
-                    if (lobbyInfo.state != -1 && lobbyInfo.type != 3 && (lobbyInfo.playerCount != 10 || FULL_LOBBY_JOINABLE))
+                    if (lobbyInfo.state != -1 && (lobbyInfo.dontHide || lobbyInfo.type != 3) && (lobbyInfo.playerCount != 10 || FULL_LOBBY_JOINABLE))
                     {
                         statusOverview += "\n**Open the game and click a link below to join!**";
                         break;
@@ -110,8 +150,8 @@ namespace SLB
             // Lobby messages
             foreach (var lobbyInfo in lobbyInfos)
             {
-                // Skip displaying custom lobbies
-                if (lobbyInfo.type == 3 && !SHOW_CUSTOM_GAMES)
+                // Hide custom games
+                if (!lobbyInfo.dontHide && lobbyInfo.type == 3 && !SHOW_CUSTOM_GAMES)
                 {
                     continue;
                 }
@@ -127,7 +167,7 @@ namespace SLB
                 {
                     builder.WithDescription("Lobby initialising...");
                 }
-                else if (lobbyInfo.type == 3)
+                else if (!lobbyInfo.dontHide && lobbyInfo.type == 3)
                 {
                     builder.WithDescription("Private lobby");
                 }
@@ -188,9 +228,8 @@ namespace SLB
                     try
                     {
                         // look for old status channels
-                        var textChannels = await guild.GetTextChannelsAsync();
                         RestTextChannel statusChannel = null;
-                        foreach (var channel in textChannels)
+                        foreach (var channel in await guild.GetTextChannelsAsync())
                         {
                             if (channel.Name.EndsWith("-in-matchmaking"))
                             {

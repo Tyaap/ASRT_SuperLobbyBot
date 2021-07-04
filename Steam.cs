@@ -30,7 +30,7 @@ namespace SLB
         // linfo for status message
         static int playerCount;
         static LobbyCounts lobbyCounts;
-        static List<LobbyInfo> lobbyInfos;
+        public static List<LobbyInfo> lobbyInfos;
 
 
         // timer for updating message
@@ -446,8 +446,16 @@ namespace SLB
                 }
             }
 
-            // Sort by number of players
-            lobbyInfos.Sort((x, y) => -x.playerCount.CompareTo(y.playerCount));
+            // Sort by lobby type, then number of players
+            lobbyInfos.Sort((x, y) => 
+            {
+                int cmp = -x.type.CompareTo(y.type); // custom games first
+                if (cmp == 0)
+                {
+                    cmp =  -x.playerCount.CompareTo(y.playerCount); // more players first
+                }
+                return cmp;
+            });
         }
 
         public static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
