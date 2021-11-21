@@ -16,6 +16,7 @@
 
             Web.Run();
             Discord.Run();
+            Stats.Run();
             Steam.Run(); // Callback loop blocks the thread
         }
     }

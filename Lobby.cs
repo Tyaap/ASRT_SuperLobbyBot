@@ -11,39 +11,38 @@ namespace SLB
         public int matchMode;
         public int state;
         public int difficulty;
-        public bool dontHide; // don't hide this lobby in status messages
+        public bool hidden; // hide this lobby in status messages
+        public Mod mod; // lobby is using a mod
+    }
+
+    public enum Mod
+    {
+        CloNoBumpClassic,
+        CloNoBumpSupercharged,
     }
 
     struct LobbyDetails
-        {
-            public bool unknown1;
-            public bool usingScore;
-            public byte lobbyType;
-            public byte matchMode;
-            public byte unknown2;
-            public byte unknown3;
-            public byte unknown4;
-            public byte timerState;
-            public byte unknown5;
-            public uint unknown6;
-            public byte countdownTime;
-            public byte difficulty;
-            public byte unknown7;
-            public byte unknown8;
-            public byte progressPercentage;
-            public ushort unknown9;
-            public string hostName;
-            public byte unknown10;
-            public byte playerCount;
-            public ushort unknown11;
-        }
-
-    public struct LobbyCounts
     {
-        public int matchmakingLobbies;
-        public int matchmakingPlayers;
-        public int customGameLobbies;
-        public int customGamePlayers;
+        public bool unknown1;
+        public bool usingScore;
+        public byte lobbyType;
+        public byte matchMode;
+        public byte unknown2;
+        public byte unknown3;
+        public byte unknown4;
+        public byte timerState;
+        public byte unknown5;
+        public uint unknown6;
+        public byte countdownTime;
+        public byte difficulty;
+        public byte unknown7;
+        public byte unknown8;
+        public byte progressPercentage;
+        public ushort unknown9;
+        public string hostName;
+        public byte unknown10;
+        public byte playerCount;
+        public ushort unknown11;
     }
 
     public static class LobbyTools

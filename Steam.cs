@@ -29,13 +29,12 @@ namespace SLB
 
         // linfo for status message
         static int playerCount;
-        static LobbyCounts lobbyCounts;
+        static LobbyStats lobbyStats;
         public static List<LobbyInfo> lobbyInfos;
 
 
         // timer for updating message
         static Timer messageTimer;
-
 
         // ASRT's appid
         public const int APPID = 212480;
@@ -142,6 +141,7 @@ namespace SLB
                 Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "\nSuper Lobby Bot is active! :)" : "\n");
             }
 
+            DateTime timestamp = DateTime.Now;
             if (loggedIn)
             {
                 // get number of current players
@@ -171,6 +171,7 @@ namespace SLB
 
                 // get lobby list
                 Console.WriteLine("Getting lobby list...");
+
                 try
                 {
                     var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID,
@@ -180,6 +181,7 @@ namespace SLB
                             new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
                         }
                     );
+                    
                     if (getLobbyListCallback.Result == EResult.OK)
                     {
                         Console.WriteLine("Got lobby list!");
@@ -203,13 +205,20 @@ namespace SLB
             {
                 // display disconnection message and attempt reconnection
                 playerCount = -1;
-                lobbyCounts = new LobbyCounts();
+                lobbyStats = new LobbyStats();
                 lobbyInfos = new List<LobbyInfo>();
                 SteamConnect();
             }
 
+            // record data
+            Stats.AddRecord(timestamp, lobbyInfos);
+
+            // get lobby stats
+            lobbyStats = Stats.GetLobbyStats(timestamp, lobbyInfos);
+
             // update status messages
-            Discord.UpdateStatus(playerCount, lobbyCounts, lobbyInfos).GetAwaiter().GetResult();
+            Discord.UpdateStatus(timestamp, playerCount, lobbyInfos, lobbyStats).GetAwaiter().GetResult();
+
             // restart the timer
             messageTimer.Change(message_wait, -1);
         }
@@ -369,12 +378,12 @@ namespace SLB
 
         static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
         {
-            lobbyCounts = new LobbyCounts();
             if (lobbyInfos == null)
             {
                 lobbyInfos = new List<LobbyInfo>();
             }
 
+            int lobbyCount = 0;
             foreach (var lobby in lobbies)
             {
                 var lobbyInfo = ProcessLobby(lobby);
@@ -385,7 +394,7 @@ namespace SLB
                 }
 
                 int index = lobbyInfos.FindIndex(l => l.id == lobbyInfo.id);
-                // If in the lobby info list, we remove the old info
+                // If in the lobby info list, remove the old info
                 if (index >= 0)
                 {
                     lobbyInfos.RemoveAt(index);
@@ -395,24 +404,14 @@ namespace SLB
                     Console.WriteLine("New lobby: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
                 }
 
-                if (lobbyInfo.type == 3)
-                {
-                    lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                    lobbyCounts.customGameLobbies++;
-                }
-                else
-                {
-                    lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                    lobbyCounts.matchmakingLobbies++;
-                }
-
                 // Add the new / updated lobby info to the list end
                 lobbyInfos.Add(lobbyInfo);
+                lobbyCount++;
             }
 
             // Check cached lobbies that are not in the retrieved list - these are either full or were deleted
             // These will be at the start of the list
-            for (int i = lobbyInfos.Count - lobbyCounts.matchmakingLobbies - lobbyCounts.customGameLobbies - 1; i >= 0; i--)
+            for (int i = lobbyInfos.Count - lobbyCount - 1; i >= 0; i--)
             {
                 try
                 {
@@ -420,16 +419,6 @@ namespace SLB
                     if (lobbyDataCallback.Lobby.NumMembers > 0)
                     {
                         var lobbyInfo = ProcessLobby(lobbyDataCallback.Lobby);
-                        if (lobbyInfo.type == 3)
-                        {
-                            lobbyCounts.customGamePlayers += lobbyInfo.playerCount;
-                            lobbyCounts.customGameLobbies++;
-                        }
-                        else
-                        {
-                            lobbyCounts.matchmakingPlayers += lobbyInfo.playerCount;
-                            lobbyCounts.matchmakingLobbies++;
-                        }
 
                         // Update info in the list
                         lobbyInfos[i] = lobbyInfo;
@@ -449,7 +438,7 @@ namespace SLB
             // Sort by lobby type, then number of players
             lobbyInfos.Sort((x, y) => 
             {
-                int cmp = -x.type.CompareTo(y.type); // custom games first
+                int cmp = -(x.type == 3).CompareTo(y.type == 3); // custom games first
                 if (cmp == 0)
                 {
                     cmp =  -x.playerCount.CompareTo(y.playerCount); // more players first
@@ -493,6 +482,12 @@ namespace SLB
                 lobbyInfo.state = details.timerState;
                 lobbyInfo.difficulty = details.difficulty;
                 lobbyInfo.playerCount = Math.Min(Math.Max(lobby.NumMembers, details.playerCount), 10);
+            }
+
+            // CloNoBump
+            if (lobby.Metadata.TryGetValue("CloNoBump", out value))
+            {
+                lobbyInfo.mod = Mod.CloNoBumpSupercharged;
             }
 
             return lobbyInfo;

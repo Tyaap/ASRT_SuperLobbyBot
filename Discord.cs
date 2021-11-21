@@ -33,6 +33,8 @@ namespace SLB
 
         private static HashSet<ulong> dontHideLobby = new HashSet<ulong>();
 
+        private static DateTime firstTimestamp = DateTime.MinValue;
+
         public static void Run()
         {
             discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig { ExclusiveBulkDelete = true });
@@ -70,9 +72,9 @@ namespace SLB
                 Console.WriteLine("OnMessageRecieved: Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
                 ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
                 LobbyInfo lobbyInfo = Steam.lobbyInfos.Find(x => x.id == id);
-                if (lobbyInfo == null || lobbyInfo.type != 3 || lobbyInfo.dontHide)
+                if (lobbyInfo == null || !lobbyInfo.hidden)
                 {
-                    return; // custom lobby does not exist or it was already added
+                    return; // lobby does not exist or is already visible
                 }
                 dontHideLobby.Add(id);
                 Console.WriteLine("OnMessageRecieved: Added lobby to the status channel!");
@@ -83,24 +85,35 @@ namespace SLB
             }
         }        
 
-        public static async Task UpdateStatus(int playerCount, LobbyCounts lobbyCounts, List<LobbyInfo> lobbyInfos)
+        public static async Task UpdateStatus(DateTime timestamp, int playerCount, List<LobbyInfo> lobbyInfos, LobbyStats lobbyStats)
         {
-            // check if any lobbies need unhiding
-            HashSet<ulong> dontHideLobbyNew = new HashSet<ulong>();
-            foreach(var lobbyInfo in lobbyInfos)
+            if (firstTimestamp == DateTime.MinValue)
             {
-                if (lobbyInfo.type != 3)
-                {
-                    continue;
-                }
-                if (dontHideLobby.Contains(lobbyInfo.id))
-                {
-                    lobbyInfo.dontHide = true;
-                    dontHideLobbyNew.Add(lobbyInfo.id);
-                }
+                firstTimestamp = timestamp;
             }
-            dontHideLobby = dontHideLobbyNew; // removed any lobbies that no longer exist
 
+            // check if any lobbies need hiding
+            if (!SHOW_CUSTOM_GAMES)
+            {
+                HashSet<ulong> dontHideLobbyNew = new HashSet<ulong>();
+                foreach(var lobbyInfo in lobbyInfos)
+                {
+                    if (lobbyInfo.type != 3)
+                    {
+                        continue; // don't hide matchmaking lobbies
+                    }
+                    if (dontHideLobby.Contains(lobbyInfo.id))
+                    {
+                        dontHideLobbyNew.Add(lobbyInfo.id);
+                    }
+                    else
+                    {
+                        lobbyInfo.hidden = true;
+                    }
+                }
+                dontHideLobby = dontHideLobbyNew; // remove lobbies that no longer exist
+            }
+            
             if (!loggedIn)
             {
                 await LoginAsync();
@@ -120,43 +133,50 @@ namespace SLB
             // Overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("**__S&ASRT Lobbies — {0} GMT__**", DateTime.Now.ToString(CLOCK_FORMAT));
+                string statusOverview = string.Format("**__S&ASRT Lobbies — {0} GMT__**", timestamp.ToString(CLOCK_FORMAT));
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
-                statusOverview += "\n" + LobbyCountMessage(lobbyCounts.matchmakingLobbies, lobbyCounts.matchmakingPlayers, "matchmaking");
-                statusOverview += "\n" + LobbyCountMessage(lobbyCounts.customGameLobbies, lobbyCounts.customGamePlayers, "custom game");
+                statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking");
+                statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom game");
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
-                    if (lobbyInfo.state != -1 && (lobbyInfo.dontHide || lobbyInfo.type != 3) && (lobbyInfo.playerCount != 10 || FULL_LOBBY_JOINABLE))
+                    if (lobbyInfo.state != -1 && !lobbyInfo.hidden && (lobbyInfo.playerCount != 10 || FULL_LOBBY_JOINABLE))
                     {
                         statusOverview += "\n**Open the game and click a link below to join!**";
                         break;
                     }
                 }
                 messages.Add(statusOverview);
-                embeds.Add(null);
             }
             else
             {
                 string message = "**Not connected to Steam!**";
                 if (DateTime.Now.DayOfWeek == DayOfWeek.Tuesday || DateTime.Now.DayOfWeek == DayOfWeek.Wednesday)
                 {
-                    message += "\n**Steam is likely down for normal Tuesday maintenance.**";
+                    message += "\n**Steam is likely down for scheduled Tuesday maintenance.**";
                 }
                 messages.Add(message);
-                embeds.Add(null);
             }
+
+            // Overview message - matchmaking stats
+            EmbedBuilder builder = new EmbedBuilder();
+            builder.WithColor(LOBBY_COLOUR);
+            builder.WithTitle("Matchmaking Stats");
+            builder.WithDescription("Collected since " + firstTimestamp.ToString(CLOCK_FORMAT));
+            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.0") + " Players");
+            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.0") + " Players");
+            builder.AddField("Most Activity Ever", lobbyStats.MMAllTimeBestDate.ToString(CLOCK_FORMAT) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
+            embeds.Add(builder.Build());
 
             // Lobby messages
             foreach (var lobbyInfo in lobbyInfos)
             {
-                // Hide custom games
-                if (!lobbyInfo.dontHide && lobbyInfo.type == 3 && !SHOW_CUSTOM_GAMES)
+                if (lobbyInfo.hidden)
                 {
-                    continue;
+                    continue; // hide this lobby
                 }
 
-                EmbedBuilder builder = new EmbedBuilder();
+                builder = new EmbedBuilder();
                 builder.WithColor(LOBBY_COLOUR);
 
                 // title
@@ -167,17 +187,18 @@ namespace SLB
                 {
                     builder.WithDescription("Lobby initialising...");
                 }
-                else if (!lobbyInfo.dontHide && lobbyInfo.type == 3)
-                {
-                    builder.WithDescription("Private lobby");
-                }
                 else if (lobbyInfo.playerCount == 10 && !FULL_LOBBY_JOINABLE)
                 {
                     builder.WithDescription("Lobby is full!");
                 }
                 else
                 {
-                    builder.WithDescription(string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id));
+                    string desription = string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id);
+                    if (lobbyInfo.mod == Mod.CloNoBumpSupercharged)
+                    {
+                        desription += "\nMod Required: https://github.com/Tyaap/ASRT_CloNoBump_Supercharged/releases";
+                    }
+                    builder.WithDescription(desription);
                 }
 
                 // fields
@@ -285,7 +306,7 @@ namespace SLB
                 // set channel name
                 try
                 {
-                    string name = (lobbyCounts.matchmakingPlayers >= 0 ? lobbyCounts.matchmakingPlayers.ToString() : "xx") + "-in-matchmaking";
+                    string name = (lobbyStats.MMPlayers >= 0 ? lobbyStats.MMPlayers.ToString() : "xx") + "-in-matchmaking";
                     // only update if the channel name has changed and it has been at least 5 minutes since the last update (Discord rate limit)
                     if (DateTime.Now.Subtract(channelUpdateTime).TotalMinutes >= 5 && !channelMessagePair.Item1.Name.Equals(name))
                     {
@@ -377,6 +398,17 @@ namespace SLB
             {
                 return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby"); ;
             }
+        }
+
+        public static string HourStr(int hour)
+        {
+            bool am = hour < 12;
+            hour %= 12;
+            if (hour == 0)
+            {
+                hour = 12;
+            }
+            return hour + (am ? "AM" : "PM");
         }
 
         public static async Task LoginAsync()
