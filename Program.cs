@@ -1,23 +1,31 @@
-﻿namespace SLB
+﻿using System;
+using System.Threading.Tasks;
+
+namespace SLB
 {
     static class Program
     {
-        static void Main(string[] args)
+        static async Task Main()
         {
-            // Login details given as arguments
-            if (args.Length == 5)
-            {
-                Discord.token = args[0];
-                Steam.user = args[1];
-                Steam.pass = args[2];
-                Steam.message_wait = int.Parse(args[3]) * 1000;
-                Discord.allocatedMessageCount = int.Parse(args[4]);
-            }
+            Console.WriteLine("Super Lobby Bot: Hello!");
 
-            Web.Run();
-            Discord.Run();
-            Stats.Run();
-            Steam.Run(); // Callback loop blocks the thread
+            await Web.Start();            
+            Stats.Restore();
+            await Discord.Start();
+            Steam.Start();
+            await Web.WaitForShutdown();
+            Shutdown();
+
+            Console.WriteLine("Super Lobby Bot: Goodbye!");
+        }
+
+        static void Shutdown()
+        {
+            Console.WriteLine("Program.Shutdown()");
+            Stats.SaveDataset();
+            Steam.Stop();
+            Discord.Stop();
+            Web.Stop();
         }
     }
 }

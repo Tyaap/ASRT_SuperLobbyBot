@@ -15,28 +15,33 @@ namespace SLB
 {
     static class Discord
     {
+        // environment variables
+        private static int ENV_MESSAGE_COUNT => int.Parse(Environment.GetEnvironmentVariable("MESSAGE_COUNT"));
+
+        // constants
+        private const bool SHOW_CUSTOM_GAMES = false;
+        private const bool FULL_LOBBY_JOINABLE = true;
+        private const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
+        private static readonly Color LOBBY_COLOUR = Color.Gold;
+
+        // Discord client
         private static DiscordSocketClient discordSocketClient;
         private static CommandService commandService;
         private static IServiceProvider serviceProvider;
-        public static string token;
+
+        public static bool connected;
         public static bool loggedIn;
-        private static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
 
-        public static int allocatedMessageCount;
-        private static int lastMessageCount;
+        // status messages
         private static DateTime channelUpdateTime;
+        private static Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>> currentStatusMessages;
+        private static int lastMessageCount;
+        private static HashSet<ulong> visibleCustomGames = new HashSet<ulong>();
 
-        private const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
-        private static readonly Color LOBBY_COLOUR = Color.Gold;
-        private const bool SHOW_CUSTOM_GAMES = false;
-        private const bool FULL_LOBBY_JOINABLE = true;
 
-        private static HashSet<ulong> dontHideLobby = new HashSet<ulong>();
-
-        private static DateTime firstTimestamp = DateTime.MinValue;
-
-        public static void Run()
+        public static async Task Start()
         {
+            Console.WriteLine("Discord.Start()");
             discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig { ExclusiveBulkDelete = true });
             commandService = new CommandService();
             serviceProvider = new ServiceCollection()
@@ -46,72 +51,72 @@ namespace SLB
 
             currentStatusMessages = new Dictionary<ulong, Tuple<ITextChannel, List<IUserMessage>>>();
 
-            if (File.Exists("token.txt"))
-            {
-                token = File.ReadAllText("token.txt");
-                Console.WriteLine("Using persisted bot token.");
-            }
-            if (string.IsNullOrEmpty(token))
-            {
-                token = Web.InputRequest("Enter bot token.");
-            }
-
-            discordSocketClient.Log += DiscordSocketClient_Log;
-            discordSocketClient.LoggedIn += DiscordSocketClient_LoggedIn;
-            discordSocketClient.LoggedOut += DiscordSocketClient_LoggedOut;
-            discordSocketClient.MessageReceived += OnMessageRecieved;
-            RegisterCommandsAsync().GetAwaiter().GetResult();
-            LoginAsync().GetAwaiter().GetResult();
+            discordSocketClient.Log += Log;
+            discordSocketClient.LoggedIn += LoggedIn;
+            discordSocketClient.LoggedOut += LoggedOut;
+            discordSocketClient.MessageReceived += MessageRecieved;
+            discordSocketClient.Disconnected += Disconnected;
+            discordSocketClient.Connected += Connected;
+            await RegisterCommandsAsync();
+            await LoginAsync();
         }
 
-        public static async Task OnMessageRecieved(SocketMessage message)
+        public static void Stop()
         {
-            Match m = Regex.Match(message.Content, @"steam:\/\/joinlobby\/212480\/[0-9]+");
-            if (m.Success)
+            Console.WriteLine("Discord.Stop()");
+            discordSocketClient?.StopAsync().GetAwaiter().GetResult();
+            discordSocketClient?.Dispose();
+        }
+
+        public static async Task MessageRecieved(SocketMessage message)
+        {
+            try
             {
-                Console.WriteLine("OnMessageRecieved: Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
-                ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
-                LobbyInfo lobbyInfo = Steam.lobbyInfos.Find(x => x.id == id);
-                if (lobbyInfo == null || !lobbyInfo.hidden)
+                Match m = Regex.Match(message.Content, @"steam:\/\/joinlobby\/212480\/[0-9]+");
+                if (m.Success)
                 {
-                    return; // lobby does not exist or is already visible
+                    Console.WriteLine("Discord.OnMessageRecieved() Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
+                    ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
+                    LobbyInfo lobbyInfo = Steam.FindLobbyInfo(id);
+                    if (lobbyInfo == null || lobbyInfo.type != 3)
+                    {
+                        return; // lobby does not exist or is already visible
+                    }
+                    visibleCustomGames.Add(id);
+                    if(currentStatusMessages.TryGetValue((message.Channel as SocketGuildChannel).Guild.Id, out var channelMessagePair))
+                    {
+                        await message.Channel.SendMessageAsync("Added " + lobbyInfo.name + " to " + channelMessagePair.Item1.Mention + "!");
+                    }         
                 }
-                dontHideLobby.Add(id);
-                Console.WriteLine("OnMessageRecieved: Added lobby to the status channel!");
-                if(currentStatusMessages.TryGetValue((message.Channel as SocketGuildChannel).Guild.Id, out var channelMessagePair))
-                {
-                    await message.Channel.SendMessageAsync("Added " + lobbyInfo.name + " to " + channelMessagePair.Item1.Mention + "!");
-                }          
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Discord.OnMessageRecieved() Exception!\n" + ex);
             }
         }        
 
         public static async Task UpdateStatus(DateTime timestamp, int playerCount, List<LobbyInfo> lobbyInfos, LobbyStats lobbyStats)
         {
-            if (firstTimestamp == DateTime.MinValue)
-            {
-                firstTimestamp = timestamp;
-            }
-
             // check if any lobbies need hiding
             if (!SHOW_CUSTOM_GAMES)
             {
-                HashSet<ulong> dontHideLobbyNew = new HashSet<ulong>();
+                HashSet<ulong> visibleCustomGamesNew = new HashSet<ulong>();
                 foreach(var lobbyInfo in lobbyInfos)
                 {
                     if (lobbyInfo.type != 3)
                     {
                         continue; // don't hide matchmaking lobbies
                     }
-                    if (dontHideLobby.Contains(lobbyInfo.id))
+                    if (visibleCustomGames.Contains(lobbyInfo.id))
                     {
-                        dontHideLobbyNew.Add(lobbyInfo.id);
+                        visibleCustomGamesNew.Add(lobbyInfo.id);
                     }
                     else
                     {
                         lobbyInfo.hidden = true;
                     }
                 }
-                dontHideLobby = dontHideLobbyNew; // remove lobbies that no longer exist
+                visibleCustomGames = visibleCustomGamesNew;
             }
             
             if (!loggedIn)
@@ -119,12 +124,10 @@ namespace SLB
                 await LoginAsync();
                 if (!loggedIn)
                 {
-                    Console.WriteLine("Skipping Discord status message update.");
+                    Console.WriteLine("Not logged in, skipping update.");
                     return;
                 }
             }
-
-            Console.WriteLine("Updating Discord status messages...");
 
             // Message storage
             List<string> messages = new List<string>();
@@ -133,7 +136,7 @@ namespace SLB
             // Overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("**__S&ASRT Lobbies — {0} GMT__**", timestamp.ToString(CLOCK_FORMAT));
+                string statusOverview = string.Format("**__S&ASRT Lobby Info — {0} GMT__**", timestamp.ToString(CLOCK_FORMAT));
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking");
                 statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom game");
@@ -146,14 +149,15 @@ namespace SLB
                         break;
                     }
                 }
+                statusOverview += "\n** **";
                 messages.Add(statusOverview);
             }
             else
             {
-                string message = "**Not connected to Steam!**";
+                string message = "**Lobby info unavailable!**";
                 if (DateTime.Now.DayOfWeek == DayOfWeek.Tuesday || DateTime.Now.DayOfWeek == DayOfWeek.Wednesday)
                 {
-                    message += "\n**Steam is likely down for scheduled Tuesday maintenance.**";
+                    message += "\n**Steam might be down for scheduled Tuesday maintenance.**";
                 }
                 messages.Add(message);
             }
@@ -162,9 +166,9 @@ namespace SLB
             EmbedBuilder builder = new EmbedBuilder();
             builder.WithColor(LOBBY_COLOUR);
             builder.WithTitle("Matchmaking Stats");
-            builder.WithDescription("Collected since " + firstTimestamp.ToString(CLOCK_FORMAT));
-            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.0") + " Players");
-            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.0") + " Players");
+            builder.WithDescription("Since " + lobbyStats.StartDate.ToString(CLOCK_FORMAT) + " GMT");
+            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.00") + " Players");
+            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.00") + " Players");
             builder.AddField("Most Activity Ever", lobbyStats.MMAllTimeBestDate.ToString(CLOCK_FORMAT) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
             embeds.Add(builder.Build());
 
@@ -278,7 +282,7 @@ namespace SLB
 
                             // if there are sufficient messages, assume they are being displayed as one message.
                             // insufficient messages, start from scratch to ensure messages displayed as one.
-                            if (statusMessages.Count < allocatedMessageCount)
+                            if (statusMessages.Count < ENV_MESSAGE_COUNT)
                             {
                                 Console.WriteLine("Insufficient messages, starting from scratch...");
                                 await statusChannel.DeleteMessagesAsync(statusMessages);
@@ -324,7 +328,7 @@ namespace SLB
                 // send/update messages
                 // case true: ensure new channel has messages allocated
                 // case false: update/send the appropriate subset of messages
-                int count = newChannel ? allocatedMessageCount : Math.Max(messages.Count, lastMessageCount);
+                int count = newChannel ? ENV_MESSAGE_COUNT : Math.Max(messages.Count, lastMessageCount);
                 try
                 {
                     for (int i = 0; i < count; i++)
@@ -355,11 +359,11 @@ namespace SLB
                 }
 
                 // delete excess messages once the message count falls below the target message allocation
-                if (messages.Count <= allocatedMessageCount && allocatedMessageCount < channelMessagePair.Item2.Count)
+                if (messages.Count <= ENV_MESSAGE_COUNT && ENV_MESSAGE_COUNT < channelMessagePair.Item2.Count)
                 {
                     Console.WriteLine("Deleting excess messages...");
-                    await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(allocatedMessageCount, channelMessagePair.Item2.Count - allocatedMessageCount));
-                    channelMessagePair.Item2.RemoveRange(allocatedMessageCount, channelMessagePair.Item2.Count - allocatedMessageCount);
+                    await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ENV_MESSAGE_COUNT, channelMessagePair.Item2.Count - ENV_MESSAGE_COUNT));
+                    channelMessagePair.Item2.RemoveRange(ENV_MESSAGE_COUNT, channelMessagePair.Item2.Count - ENV_MESSAGE_COUNT);
                 }
             }
 
@@ -413,52 +417,63 @@ namespace SLB
 
         public static async Task LoginAsync()
         {
-            Console.WriteLine("Logging into Discord...");
+            Console.WriteLine("Discord.LoginAsync()");
             try
             {
-                await discordSocketClient.LoginAsync(TokenType.Bot, token);
+                await discordSocketClient.LoginAsync(TokenType.Bot, Environment.GetEnvironmentVariable("DISCORD_TOKEN"));
                 await discordSocketClient.StartAsync();
             }
             catch (Exception e)
             {
-                Console.WriteLine("Failed to log into Discord!");
-                Console.WriteLine(e);
+                Console.WriteLine("Discord.LoginAsync() Exception!\n" + e);
             }
         }
 
-        private static Task DiscordSocketClient_Log(LogMessage arg)
+        private static Task Log(LogMessage arg)
         {
-            Console.WriteLine(arg);
+            Console.WriteLine("Discord " + arg);
             return Task.CompletedTask;
         }
 
-        private static Task DiscordSocketClient_LoggedIn()
+        private static Task LoggedIn()
         {
-            Console.WriteLine("Logged into Discord!");
+            Console.WriteLine("Discord.LoggedIn()");
             loggedIn = true;
-
-            Console.WriteLine("Saving token file...");
-            File.WriteAllText("token.txt", token);
-            Console.WriteLine("Saved token file!");
-
             return Task.CompletedTask;
         }
 
-        private static Task DiscordSocketClient_LoggedOut()
+        private static Task LoggedOut()
         {
-            Console.WriteLine("Logged out of Discord!");
+            Console.WriteLine("Discord.LoggedOut()");
+            loggedIn = false;
+            return Task.CompletedTask;
+        }
+
+        private static Task Connected()
+        {
+            Console.WriteLine("Discord.Connected()");
+            connected = true;
+            return Task.CompletedTask;
+        }
+
+        private static Task Disconnected(Exception ex)
+        {
+            Console.WriteLine("Discord.Disconnected() Exception:\n" + ex);
+            connected = false;
             loggedIn = false;
             return Task.CompletedTask;
         }
 
         public static async Task RegisterCommandsAsync()
         {
+            Console.WriteLine("Discord.RegisterCommandsAsync()");
             discordSocketClient.MessageReceived += HandleCommandAsync;
             await commandService.AddModulesAsync(Assembly.GetEntryAssembly(), serviceProvider);
         }
 
         private static async Task HandleCommandAsync(SocketMessage arg)
         {
+            Console.WriteLine("Discord.HandleCommandAsync()");
             var message = arg as SocketUserMessage;
             var context = new SocketCommandContext(discordSocketClient, message);
             if (message.Author.IsBot) return;

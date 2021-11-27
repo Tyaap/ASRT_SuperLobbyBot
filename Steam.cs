@@ -1,75 +1,56 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading;
+using System.Timers;
 using System.Threading.Tasks;
 using SteamKit2;
-using SteamKit2.Discovery;
 
 namespace SLB
 {
     static class Steam
     {
-        static SteamClient steamClient;
-        static CallbackManager manager;
+        // environment variables
+        private static string ENV_STEAM_USER => Environment.GetEnvironmentVariable("STEAM_USER");
+        private static string ENV_STEAM_PASS => Environment.GetEnvironmentVariable("STEAM_PASS");
+        private static int ENV_MESSAGE_WAIT => int.Parse(Environment.GetEnvironmentVariable("MESSAGE_WAIT")) * 1000;
 
-        static SteamUser steamUser;
-        static SteamMatchmaking steamMatchmaking;
-        static SteamUserStats steamUserStats;
-
-        static bool isRunning;
-        static bool loggedIn;
-        static bool twoFactorReconnect = false;
-
-        public static string user, pass, loginkey;
-
-        static string authCode, twoFactorAuth;
-
-        // linfo for status message
-        static int playerCount;
-        static LobbyStats lobbyStats;
-        public static List<LobbyInfo> lobbyInfos;
-
-
-        // timer for updating message
-        static Timer messageTimer;
-
-        // ASRT's appid
+        // constants
         public const int APPID = 212480;
-
-        // wait times in milliseconds
-        public static int message_wait = 10000;
         const int CALLBACK_WAIT = 100;
+        const int MAX_ERRORS = 10;
+
+        // Steam client
+        private static SteamClient steamClient;
+        private static CallbackManager manager;
+        private static SteamUser steamUser;
+        private static SteamMatchmaking steamMatchmaking;
+        private static SteamUserStats steamUserStats;
+        private static bool loggedIn;
+        private static bool connected;
+        private static Timer callbackTimer;
+
+        // info for status message
+        private static int playerCount;
+        private static LobbyStats lobbyStats;
+        private static List<LobbyInfo> lobbyInfos;
+
+        // timer for updating messages
+        private static Timer messageTimer;
+        static int errorCount = 0;
 
 
-        public static void Run()
+
+        public static void Start()
         {
-            var cellid = 0u;
-            // if we've previously connected and saved our cellid, load it
-            if (File.Exists("cellid.txt"))
-            {
-                if (!uint.TryParse(File.ReadAllText("cellid.txt"), out cellid))
-                {
-                    Console.WriteLine("Error parsing cell id from cellid.txt. Continuing with cellid 0.");
-                    cellid = 0;
-                }
-                else
-                {
-                    Console.WriteLine("Using persisted cell ID {0}", cellid);
-                }
-            }
-            var configuration = SteamConfiguration.Create(b => b.WithCellID(cellid).WithServerListProvider(new FileStorageServerListProvider("servers_list.bin")));
-
+            Console.WriteLine("Steam.Start()");
             // create our steamclient instance
-            steamClient = new SteamClient(configuration);
+            steamClient = new SteamClient();
+
             // create the callback manager which will route callbacks to function calls
             manager = new CallbackManager(steamClient);
 
             // get the steamuser handler, which is used for logging on after successfully connecting
             steamUser = steamClient.GetHandler<SteamUser>();
-
             steamMatchmaking = steamClient.GetHandler<SteamMatchmaking>();
             steamUserStats = steamClient.GetHandler<SteamUserStats>();
 
@@ -78,302 +59,191 @@ namespace SLB
             // to the functions specified
             manager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
             manager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
-
             manager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
             manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
 
-            // this callback is triggered when the steam servers wish for the client to store the sentry file
-            manager.Subscribe<SteamUser.UpdateMachineAuthCallback>(OnMachineAuth);
+            // initiate the connection
+            steamClient.Connect();
 
-            // this callback is triggered when the steam servers wish for the client to store the login key
-            manager.Subscribe<SteamUser.LoginKeyCallback>(OnLoginKey);
+            // Steam callback timer
+            callbackTimer = new Timer(CALLBACK_WAIT) { AutoReset = true };
+            callbackTimer.Elapsed += CallbackTimerTick;
+            callbackTimer.Start();
 
             // message update timer
-            messageTimer = new Timer(OnTimerTick, null, message_wait, -1);
+            messageTimer = new Timer(ENV_MESSAGE_WAIT) { AutoReset = true };
+            messageTimer.Elapsed += MessageTimerTick;
+            messageTimer.Start();
+        }
 
-            isRunning = true;
+        public static void Stop()
+        {
+            Console.WriteLine("Steam.Stop()");
+            callbackTimer?.Stop();
+            callbackTimer?.Dispose();
+            callbackTimer = null;
 
-            // initiate the connection
-            SteamConnect();
+            messageTimer?.Stop();
+            messageTimer?.Dispose();
+            messageTimer = null;
 
-            while (isRunning)
+            if (loggedIn)
             {
-                // in order for the callbacks to get routed, they need to be handled by the manager
+                steamUser?.LogOff();
+            }
+            else
+            {
+                steamClient?.Disconnect();
+            }
+            
+            while (connected)
+            {
                 manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(CALLBACK_WAIT));
             }
         }
 
-        static void SteamConnect()
+        static void CallbackTimerTick(object caller, ElapsedEventArgs e)
         {
-            Console.WriteLine("Connecting to Steam...");
-            // if we've previously connected and saved our login key, load it
-            if (File.Exists("loginkey.txt"))
+            try
             {
-                string[] lines = File.ReadAllLines("loginkey.txt");
-                if (lines.Length == 2)
+                manager.RunWaitCallbacks();
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Steam.CallbackTimerTick() Exception!\n" + ex);
+            }
+        }
+
+        static async void MessageTimerTick(object caller, ElapsedEventArgs e)
+        {
+            try
+            {
+                // web status
+                Web.message = string.Format(
+                    "Discord logged in: {0}\n" +
+                    "Steam logged in: {1}\n" +
+                    "Super Lobby Bot is {2}",
+                Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "working! :)" : "not working! :(");
+
+                DateTime timestamp = DateTime.Now;
+                if (loggedIn && await RefreshLobbyInfo())
                 {
-                    user = lines[0];
-                    loginkey = lines[1];
-                    Console.WriteLine("Using persisted login key.");
+                    // record data
+                    Stats.WriteEntryData(timestamp, lobbyInfos);
+
+                    // get lobby stats
+                    lobbyStats = Stats.ProcessEntry(timestamp, lobbyInfos);
+
+                    errorCount = 0;
                 }
                 else
                 {
-                    Console.WriteLine("Error parsing login key from loginkey.txt.");
+                    playerCount = -1;
+                    lobbyStats = new LobbyStats();
+                    lobbyInfos = new List<LobbyInfo>();
+                    if (loggedIn)
+                    {
+                        errorCount++;
+                        if (errorCount == MAX_ERRORS)
+                        {
+                            Console.WriteLine("MessageTimerTickError() Failed to refresh {0} times, disconnecting from Steam.", MAX_ERRORS);
+                            steamClient.Disconnect();
+                            errorCount = 0;
+                        }
+                    }
+                    else
+                    {
+                        steamClient.Connect();
+                    }
                 }
+
+                // update status messages
+                Discord.UpdateStatus(timestamp, playerCount, lobbyInfos, lobbyStats).GetAwaiter().GetResult();
             }
-            // if tirst time, get logon details
-            if (string.IsNullOrEmpty(user))
+            catch(Exception ex)
             {
-                user = Web.InputRequest("Enter Steam username.");
-                pass = Web.InputRequest("Enter Steam password.");
+                Console.WriteLine("Steam.MessageTimerTick() Exception!\n" + ex);
             }
-            steamClient.Connect();
         }
 
-        static async void OnTimerTick(object state)
+        static async Task<bool> RefreshLobbyInfo()
         {
-            // web status
-            if (!Web.waitingForResponse)
+            // get number of current players
+            try
             {
-                Web.message = string.Format(
-                    "Discord logged in: {0}\n" +
-                    "Steam logged in: {1}{2}",
-                Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "\nSuper Lobby Bot is active! :)" : "\n");
-            }
-
-            DateTime timestamp = DateTime.Now;
-            if (loggedIn)
-            {
-                // get number of current players
-                Console.WriteLine("Getting number of current players...");
-                try
+                var numberOfPlayersCallback = await steamUserStats.GetNumberOfCurrentPlayers(APPID);
+                if (numberOfPlayersCallback.Result == EResult.OK)
                 {
-                    var numberOfPlayersCallback = await steamUserStats.GetNumberOfCurrentPlayers(APPID);
-                    if (numberOfPlayersCallback.Result == EResult.OK)
-                    {
-                        Console.WriteLine("Got number of current players!");
-                        playerCount = (int)numberOfPlayersCallback.NumPlayers;
-                    }
-                    else
-                    {
-                        Console.WriteLine("Failed to get number of current players: {0}", numberOfPlayersCallback.Result);
-                        messageTimer.Change(message_wait, -1);
-                        return;
-                    }
+                    playerCount = (int)numberOfPlayersCallback.NumPlayers;
                 }
-                catch (TaskCanceledException)
+                else
                 {
-                    Console.WriteLine("Failed to get number of current players: Timeout");
-                    steamClient.Disconnect(); // failing this simple request likely means we are disconnected from Steam
-                    messageTimer.Change(message_wait, -1);
-                    return;
-                }
-
-                // get lobby list
-                Console.WriteLine("Getting lobby list...");
-
-                try
-                {
-                    var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID,
-                        new List<SteamMatchmaking.Lobby.Filter>()
-                        {
-                            new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
-                            new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
-                        }
-                    );
-                    
-                    if (getLobbyListCallback.Result == EResult.OK)
-                    {
-                        Console.WriteLine("Got lobby list!");
-                        await ProcessLobbyList(getLobbyListCallback.Lobbies);
-                    }
-                    else
-                    {
-                        Console.WriteLine("Failed to get lobby list: {0}", getLobbyListCallback.Result);
-                        messageTimer.Change(message_wait, -1);
-                        return;
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                    Console.WriteLine("Failed to get lobby list: Timeout");
-                    messageTimer.Change(message_wait, -1);
-                    return;
+                    Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get number of current players ({0})", numberOfPlayersCallback.Result);
+                    return false;
                 }
             }
-            else
+            catch (TaskCanceledException)
             {
-                // display disconnection message and attempt reconnection
-                playerCount = -1;
-                lobbyStats = new LobbyStats();
-                lobbyInfos = new List<LobbyInfo>();
-                SteamConnect();
+                Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get number of current players (Timeout)");
+                return false;
             }
 
-            // record data
-            Stats.AddRecord(timestamp, lobbyInfos);
-
-            // get lobby stats
-            lobbyStats = Stats.GetLobbyStats(timestamp, lobbyInfos);
-
-            // update status messages
-            Discord.UpdateStatus(timestamp, playerCount, lobbyInfos, lobbyStats).GetAwaiter().GetResult();
-
-            // restart the timer
-            messageTimer.Change(message_wait, -1);
+            // get lobby list
+            try
+            {
+                var getLobbyListCallback = await steamMatchmaking.GetLobbyList(APPID,
+                    new List<SteamMatchmaking.Lobby.Filter>()
+                    {
+                        new SteamMatchmaking.Lobby.DistanceFilter(ELobbyDistanceFilter.Worldwide),
+                        new SteamMatchmaking.Lobby.SlotsAvailableFilter(0),
+                    }
+                );
+                
+                if (getLobbyListCallback.Result == EResult.OK)
+                {
+                    await ProcessLobbyList(getLobbyListCallback.Lobbies);
+                }
+                else
+                {
+                    Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get lobby list ({0})", getLobbyListCallback.Result);
+                    return false;
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get lobby list (Timeout)");
+                return false;
+            }
+            return true;
         }
 
         static void OnConnected(SteamClient.ConnectedCallback callback)
         {
-            Console.WriteLine("Connected to Steam!");
-            byte[] sentryHash = null;
-            // if we have a saved sentry file, read and sha-1 hash it
-            if (File.Exists("sentry.bin"))
-            {
-                byte[] sentryFile = File.ReadAllBytes("sentry.bin");
-                sentryHash = CryptoHelper.SHAHash(sentryFile);
-                Console.WriteLine("Using persisted sentry file.");
-            }
-
-            Console.WriteLine("Logging '{0}' into Steam...", user);
+            Console.WriteLine("Steam.OnConnected()");
             steamUser.LogOn(new SteamUser.LogOnDetails
             {
-                Username = user,
-                Password = pass,
-
-                // we pass the login key to skip password entry
-                // this value will be null (which is the default) for our first logon attempt
-                LoginKey = loginkey,
-                ShouldRememberPassword = true,
-
-                // we pass in an additional authcode
-                // this value will be null (which is the default) for our first logon attempt
-                AuthCode = authCode,
-
-                // if the account is using 2-factor auth, we'll provide the two factor code instead
-                // this will also be null on our first logon attempt
-                TwoFactorCode = twoFactorAuth,
-
-                // our subsequent logons use the hash of the sentry file as proof of ownership of the file
-                // this will also be null for our first (no authcode) and second (authcode only) logon attempts
-                SentryFileHash = sentryHash,
+                Username = ENV_STEAM_USER,
+                Password = ENV_STEAM_PASS,
             });
         }
 
         static void OnDisconnected(SteamClient.DisconnectedCallback callback)
         {
+            Console.WriteLine("Steam.OnLoggedOff() UserInitiated:" + callback.UserInitiated);
             loggedIn = false;
-            Console.WriteLine("Disconnected from Steam!");
-            // after recieving an AccountLogonDenied, we'll be disconnected from steam
-            // so after we read an authcode from the user, we need to reconnect to begin the logon flow again
-            if (twoFactorReconnect)
-            {
-                Console.WriteLine("Reconnecting in 5 seconds.");
-                Thread.Sleep(5000);
-                SteamConnect();
-                twoFactorReconnect = false;
-            }
+            connected = false;        
         }
 
         static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
         {
-            bool isSteamGuard = callback.Result == EResult.AccountLogonDenied;
-            bool is2FA = callback.Result == EResult.AccountLoginDeniedNeedTwoFactor;
-
-            if (isSteamGuard || is2FA)
-            {
-                Console.WriteLine("This account is SteamGuard protected!");
-
-                if (is2FA)
-                {
-                    twoFactorAuth = Web.InputRequest("Please enter your 2 factor auth code from your authenticator app.");
-                }
-                else
-                {
-                    authCode = Web.InputRequest(string.Format("Please enter the auth code sent to the email at {0}", callback.EmailDomain));
-                }
-                twoFactorReconnect = true;
-                return;
-            }
-
-            if (callback.Result != EResult.OK)
-            {
-                Console.WriteLine("Unable to logon to Steam: {0} / {1}", callback.Result, callback.ExtendedResult);
-                if (callback.Result == EResult.RateLimitExceeded)
-                {
-                    Console.WriteLine("Login is rate limited, waiting for 1 hour...");
-                    Thread.Sleep(TimeSpan.FromHours(1));
-                }
-                return;
-            }
-            loggedIn = true;
-            Console.WriteLine("Logged into Steam!");
-
-            // save the current cellid somewhere. if we lose our saved server list, we can use this when retrieving
-            // servers from the Steam Directory.
-            Console.WriteLine("Saving celliid file...");
-            File.WriteAllText("cellid.txt", callback.CellID.ToString());
-            Console.WriteLine("Saved celliid file!");
+            Console.WriteLine("Steam.OnLoggedOn() Result: {0} / {1}", callback.Result, callback.ExtendedResult);
+            loggedIn = callback.Result == EResult.OK;
         }
 
         static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
         {
-            loggedIn = false;
-            Console.WriteLine("Logged off of Steam: {0}", callback.Result);
-        }
-
-        static void OnMachineAuth(SteamUser.UpdateMachineAuthCallback callback)
-        {
-            Console.WriteLine("Saving sentry file...");
-
-            // write out our sentry file
-            // ideally we'd want to write to the filename specified in the callback
-            // but then this sample would require more code to find the correct sentry file to read during logon
-            // for the sake of simplicity, we'll just use "sentry.bin"
-
-            int fileSize;
-            byte[] sentryHash;
-            using (var fs = File.Open("sentry.bin", FileMode.OpenOrCreate, FileAccess.ReadWrite))
-            {
-                fs.Seek(callback.Offset, SeekOrigin.Begin);
-                fs.Write(callback.Data, 0, callback.BytesToWrite);
-                fileSize = (int)fs.Length;
-
-                fs.Seek(0, SeekOrigin.Begin);
-                using (var sha = SHA1.Create())
-                {
-                    sentryHash = sha.ComputeHash(fs);
-                }
-            }
-
-            // inform the steam servers that we're accepting this sentry file
-            steamUser.SendMachineAuthResponse(new SteamUser.MachineAuthDetails
-            {
-                JobID = callback.JobID,
-
-                FileName = callback.FileName,
-
-                BytesWritten = callback.BytesToWrite,
-                FileSize = fileSize,
-                Offset = callback.Offset,
-
-                Result = EResult.OK,
-                LastError = 0,
-
-                OneTimePassword = callback.OneTimePassword,
-
-                SentryFileHash = sentryHash,
-            });
-
-            Console.WriteLine("Saved sentry file!");
-        }
-
-        static void OnLoginKey(SteamUser.LoginKeyCallback callback)
-        {
-            Console.WriteLine("Saving loginkey file...");
-            File.WriteAllLines("loginkey.txt", new string[] { user, callback.LoginKey });
-            steamClient.GetHandler<SteamUser>().AcceptNewLoginKey(callback);
-            Console.WriteLine("Saved loginkey file!");
+            Console.WriteLine("Steam.OnLoggedOff() Result:" + callback.Result);
+            loggedIn = false;       
         }
 
         static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
@@ -401,7 +271,7 @@ namespace SLB
                 }
                 else
                 {
-                    Console.WriteLine("New lobby: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
+                    Console.WriteLine("ProcessLobbyList() Appeared: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
                 }
 
                 // Add the new / updated lobby info to the list end
@@ -425,13 +295,13 @@ namespace SLB
                     }
                     else
                     {
-                        Console.WriteLine("Deleted lobby: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                        Console.WriteLine("ProcessLobbyList() Disappeared: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
                         lobbyInfos.RemoveAt(i);
                     }
                 }
                 catch (TaskCanceledException)
                 {
-                    Console.WriteLine("Failed to get lobby data for: {0} ({1})");
+                    Console.WriteLine("ProcessLobbyList() Failed to get lobby data for: {0} ({1})");
                 }
             }
 
@@ -572,6 +442,11 @@ namespace SLB
             }
 
             return data & ((1ul << bitLength) - 1);
+        }
+
+        public static LobbyInfo FindLobbyInfo(ulong id)
+        {
+            return Steam.lobbyInfos.Find(x => x.id == id);
         }
     }
 }

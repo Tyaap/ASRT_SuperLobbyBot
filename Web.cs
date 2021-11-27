@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Threading;
+using System.Timers;
+using System.Threading.Tasks;
 using System.Net.Http;
 using System;
 
@@ -9,52 +10,70 @@ namespace SLB
 {
     static class Web
     {
-        // Regularly ping the web API
+        // environment variables
+        static int ENV_PORT = int.Parse(Environment.GetEnvironmentVariable("PORT"));
+
+        // constants
         const string HOST_ADDRESS = "https://super-lobby-bot.herokuapp.com/";
         const int PING_INTERVAL = 60000;
-        static Timer pingTimer;
+
+        // web components
+        static IHost host;
         static HttpClient client;
-        public static EventWaitHandle waitHandle;
-
-        public static bool waitingForResponse;
+        static Timer pingTimer;
         public static string message = "Super Lobby Bot is starting...";
-        public static string response;
 
-        public static void Run()
+
+        public static async Task Start()
         {
-            CreateHostBuilder().Build().RunAsync();
+            Console.WriteLine("Web.Start()");
+            host = CreateHostBuilder().Build();
+            await host.StartAsync();
             client = new HttpClient();
-            pingTimer = new Timer(Ping, null, PING_INTERVAL, PING_INTERVAL);
-            waitHandle = new EventWaitHandle(false, EventResetMode.AutoReset);
+            pingTimer = new Timer(PING_INTERVAL) { AutoReset = true };
+            pingTimer.Elapsed += Ping;
+            pingTimer.Start();
+        }
+
+        public static async Task WaitForShutdown()
+        {
+            await host.WaitForShutdownAsync();
+        }
+
+        public static void Stop()
+        {
+            Console.WriteLine("Web.Stop()");
+            pingTimer?.Stop();
+            pingTimer?.Dispose();
+            pingTimer = null;
+            client?.Dispose();
+            host?.Dispose();
         }
 
         public static IHostBuilder CreateHostBuilder() =>
             Host.CreateDefaultBuilder()
+            .UseConsoleLifetime()
             .ConfigureLogging((logging) =>
-                {
-                    // clear default logging providers
-                    logging.ClearProviders();
-                })
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    webBuilder.UseStartup<Startup>();
-                });
+            {
+                // clear default logging providers
+                logging.ClearProviders();
+            })
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                webBuilder.UseUrls("http://*:" + ENV_PORT);
+                webBuilder.UseStartup<Startup>();
+            });
 
-        public static void Ping(object state)
+        public static void Ping(object caller, ElapsedEventArgs e)
         {
-            Console.WriteLine("Pinging web API...");
-            client.GetStringAsync(HOST_ADDRESS);
-        }
-
-        public static string InputRequest(string webMessage)
-        {
-            Console.WriteLine("Waiting for web input: " + webMessage);
-            // Update web message, wait for response.
-            message = webMessage;
-            waitingForResponse = true;
-            waitHandle.WaitOne();
-            Console.WriteLine("Recieved web input!");
-            return response;
+            try
+            {
+                client.GetStringAsync(HOST_ADDRESS);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Web.Ping() Exception!\n" + ex);
+            }
         }
     }
 }

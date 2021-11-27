@@ -3,16 +3,41 @@ using System.Collections.Generic;
 using System.Threading;
 using System.IO;
 using System.IO.Compression;
+using Npgsql;
 
 namespace SLB
 {
     static class Stats
     {
-        private static readonly DateTime referenceTime = new DateTime(2021, 1, 1);
-        private static List<byte> recordData = new List<byte>();
-        private static int nibbles = 0;
-        private static int records = 0;
-        private const int recordLimit = 5000;
+        // environment variables
+        private static string ENV_CONNECTION_STR
+        {
+            get
+            {
+                string databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+                Uri databaseUri = new Uri(databaseUrl);
+                string[] userInfo = databaseUri.UserInfo.Split(':');
+
+                NpgsqlConnectionStringBuilder builder = new NpgsqlConnectionStringBuilder
+                {
+                    Host = databaseUri.Host,
+                    Port = databaseUri.Port,
+                    Username = userInfo[0],
+                    Password = userInfo[1],
+                    Database = databaseUri.LocalPath.TrimStart('/'),
+                    SslMode = SslMode.Require,
+                    TrustServerCertificate = true,
+                };
+
+                return builder.ToString();
+            }
+        }
+
+        private static DateTime StartDate = DateTime.Now;
+        private static List<byte> Dataset = new List<byte>();
+        private static object DataLock = new object();
+        private static int Nibbles = 0;
+        private static int Entries = 0;
 
 
         // data for live MM statistics
@@ -30,70 +55,184 @@ namespace SLB
         private static DateTime MMAllTimeBestDate = DateTime.MinValue;
         private static int MMAllTimeBestPlayers = 0;
 
-        // timer for printing stats data to logs (used for backup)
-        static Timer printDataTimer;
-
-        public static void Run()
-        {
-            printDataTimer = new Timer(PrintWeekData, null, 60000, 60000);
-        }
-
-        private static void RecordNibble(byte nibble)
+        private static void WriteNibble(byte nibble)
         {
             nibble &= 0x0F;
-            bool nextByte = (nibbles & 1) == 0;
-            if (nextByte)
+            bool even = (Nibbles & 1) == 0;
+            if (even)
             {
-                recordData.Add((byte)(nibble >> 4));
+                Dataset.Add((byte)(nibble << 4));
             }
             else
             {
-                recordData[nibbles / 2] += nibble;
+                Dataset[Nibbles / 2] += nibble;
             }
-            nibbles++;
+            Nibbles++;
         }
 
-        private static void FlushData()
+        // write a dataset to the database
+        public static void SaveDataset()
         {
-            // TODO - compress and flush data to database
-
-            // clear data in memory
-            recordData.Clear();
-            nibbles = 0;
-        }
-
-        public static void AddRecord(DateTime timestamp, List<LobbyInfo> lobbyInfos)
-        {
-            // timestamp
-            recordData.AddRange(BitConverter.GetBytes((int)(timestamp - referenceTime).TotalSeconds));
-
-            // lobby player counts
-            for(int lobbyType = 0; lobbyType < 4; lobbyType++)
+            Console.WriteLine("Stats.FlushData()");
+            Console.WriteLine("Attempting to flush {0} entries ({1} bytes)", Entries, Dataset.Count);
+            using (MemoryStream ms = new MemoryStream())
             {
-                foreach (LobbyInfo lobbyInfo in lobbyInfos)
+                lock (DataLock)
                 {
-                    if (lobbyInfo.type == lobbyType)
+                    // compress data
+                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
                     {
-                        RecordNibble((byte)lobbyInfo.playerCount);
+                        ds.Write(Dataset.ToArray(), 0, Dataset.Count);
+                    }
+
+                    // start new dataset
+                    Dataset.Clear();
+                    Nibbles = 0;
+                    Entries = 0;
+                }
+
+                try
+                {
+                    // save to database
+                    using (NpgsqlConnection connection = new NpgsqlConnection(ENV_CONNECTION_STR))
+                    using (NpgsqlCommand command = connection.CreateCommand())
+                    {
+                        connection.Open();
+                        command.CommandText = 
+                            "CREATE TABLE IF NOT EXISTS stats_data (datasets bytea);" +
+                            "INSERT INTO stats_data VALUES (@dataset);";
+                        command.Parameters.AddWithValue("@dataset", ms.ToArray());
+                        command.ExecuteNonQuery();
                     }
                 }
-                if (lobbyType < 3)
+                catch(Exception e)
                 {
-                    // zero nibble to split up player counts 
-                    RecordNibble(0);
-                }
-            }
-            records++;
-            if (records == recordLimit)
-            {
-                FlushData();
-                records = 0;
+                    Console.WriteLine("Database save exception!\n" + e);
+                }    
             }
         }
 
-        public static LobbyStats GetLobbyStats(DateTime timestamp, List<LobbyInfo> lobbyInfos)
+        // restore stats using the database
+        public static void Restore()
         {
-            LobbyStats lobbyStats = new LobbyStats();
+            Console.WriteLine("Stats.Restore()");
+            int datasets = 0; 
+            int entries = 0;
+            try
+            {
+                using (NpgsqlConnection connection = new NpgsqlConnection(ENV_CONNECTION_STR))
+                using (NpgsqlCommand command = connection.CreateCommand())
+                {
+                    // restore from database
+                    connection.Open();
+                    command.CommandText = "SELECT datasets FROM stats_data";
+                    using (NpgsqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            datasets++;
+                            using (Stream s = reader.GetStream(reader.GetOrdinal("datasets")))
+                            using (DeflateStream ds = new DeflateStream(s, CompressionMode.Decompress))
+                            {
+                                while(ReadEntryData(ds, out DateTime timestamp, out List<LobbyInfo> lobbyInfos))
+                                {
+                                    ProcessEntry(timestamp, lobbyInfos, false);
+                                    entries++;
+                                    if (entries == 1)
+                                    {
+                                        StartDate = timestamp;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine("Stats.Restore() Database exception!\n" + e); 
+            }
+
+            Console.WriteLine("Stats.Restore() Loaded {0} entries from {1} datasets.", entries, datasets);
+        }
+
+        // read entry from a decompressed dataset stream
+        // lobbyInfos will only contain the type and player count for each lobby (no other info)
+        private static bool ReadEntryData(Stream stream, out DateTime timestamp, out List<LobbyInfo> lobbyInfos)
+        {
+            try
+            {
+                lobbyInfos = new List<LobbyInfo>();
+                using (BinaryReader br = new BinaryReader(stream, System.Text.Encoding.Default, true))
+                {
+                    // timestamp
+                    timestamp = DateTime.FromBinary(br.ReadInt64());
+                    
+                    // lobby counts
+                    int nibbles = 0;
+                    byte b = 0;
+                    int lobbyType = 0;
+                    do
+                    {
+                        bool even = (nibbles & 1) == 0;        
+                        if (even)
+                        {
+                            b = br.ReadByte();
+                        }
+                        byte nibble = (byte)(even ? b >> 4 : b & 0xF);
+
+                        if (nibble == 0)
+                        {
+                            lobbyType++;
+                        }
+                        else
+                        {
+                            lobbyInfos.Add(new LobbyInfo() { type = lobbyType, playerCount = nibble });
+                        }
+                        nibbles++;
+                    }
+                    while (lobbyType < 4);
+                }
+                return true;
+            }
+            catch
+            {
+                timestamp = DateTime.MinValue;
+                lobbyInfos = new List<LobbyInfo>();
+                return false;
+            }
+        }
+
+        public static void WriteEntryData(DateTime timestamp, List<LobbyInfo> lobbyInfos)
+        {
+            lock (DataLock)
+            {
+                // timestamp
+                Dataset.AddRange(BitConverter.GetBytes(timestamp.ToBinary()));
+                Nibbles += (Nibbles & 1) + 16; // align to next byte and add 8 bytes
+
+                // lobby player counts
+                for(int lobbyType = 0; lobbyType < 4; lobbyType++)
+                {
+                    foreach (LobbyInfo lobbyInfo in lobbyInfos)
+                    {
+                        if (lobbyInfo.type == lobbyType)
+                        {
+                            WriteNibble((byte)lobbyInfo.playerCount);
+                        }
+                    }
+                    // zero nibble to split up player counts 
+                    WriteNibble(0);
+                }
+                Entries++;
+            }
+        }
+
+        // process new entry and return new lobby stats
+        // optionally return mm stats
+        public static LobbyStats ProcessEntry(DateTime timestamp, List<LobbyInfo> lobbyInfos, bool mmStats = true)
+        {
+            LobbyStats lobbyStats = new LobbyStats() { StartDate = StartDate };
 
             // lobby counts
             foreach (LobbyInfo lobbyInfo in lobbyInfos)
@@ -110,18 +249,23 @@ namespace SLB
                 }
             }
 
-            // update MM week data
+            // update MM data
             int[] dayData = MMWeekData[timestamp.DayOfWeek];
             dayData[timestamp.Hour * 2] += lobbyStats.MMPlayers;
             dayData[timestamp.Hour * 2 + 1]++;
-            decimal hourAvgPlayers = (decimal)dayData[timestamp.Hour * 2] / dayData[timestamp.Hour * 2 + 1];
-
-            // MM stats
-            if (lobbyStats.MMPlayers > MMAllTimeBestPlayers)
+            if (lobbyStats.MMPlayers >= MMAllTimeBestPlayers)
             {
                 MMAllTimeBestPlayers = lobbyStats.MMPlayers;
                 MMAllTimeBestDate = timestamp;
             }
+
+            if (!mmStats)
+            {
+                // skip MM stats
+                return lobbyStats;
+            }
+
+            // MM stats
             lobbyStats.MMAllTimeBestPlayers = MMAllTimeBestPlayers;
             lobbyStats.MMAllTimeBestDate = MMAllTimeBestDate;
 
@@ -137,13 +281,13 @@ namespace SLB
                     }
                     int sum = pair.Value[i * 2];
                     decimal avgPlayers = (decimal)sum / count;
-                    if (avgPlayers > lobbyStats.MMBestHourAvgPlayers)
+                    if (avgPlayers >= lobbyStats.MMBestHourAvgPlayers)
                     {
                         lobbyStats.MMBestHourAvgPlayers = avgPlayers;
                         lobbyStats.MMBestDay = pair.Key;
                         lobbyStats.MMBestHour = i;
                     }
-                    if (avgPlayers < lobbyStats.MMWorstHourAvgPlayers)
+                    if (avgPlayers <= lobbyStats.MMWorstHourAvgPlayers)
                     {
                         lobbyStats.MMWorstHourAvgPlayers = avgPlayers;
                         lobbyStats.MMWorstDay = pair.Key;
@@ -153,38 +297,6 @@ namespace SLB
             }
 
             return lobbyStats;
-        }
-
-
-        // used to back up MM stats in logs
-        private static void PrintWeekData(object state)
-        {
-            Console.WriteLine(
-                "#### BEGIN MM WEEK DATA ####" +
-                "\n" + WeekDataToString(MMWeekData) + "\n" + 
-                "#### END MM WEEK DATA ####"
-            );
-        }
-
-        private static string WeekDataToString(Dictionary<DayOfWeek, int[]> weekData)
-        {
-            // create a base64 string containing the compresed data
-            using (MemoryStream ms = new MemoryStream())
-            {
-                using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
-                using (BinaryWriter bw = new BinaryWriter(ds))
-                {
-                    for (int i = 0; i < 7; i++)
-                    {
-                        int[] dayData = weekData[(DayOfWeek)i];
-                        foreach(int n in dayData)
-                        {
-                            bw.Write(n);
-                        }
-                    }
-                }
-                return Convert.ToBase64String(ms.ToArray());
-            }
         }
     }
 
@@ -197,6 +309,7 @@ namespace SLB
         public int CustomPlayers;
 
         // MM stats
+        public DateTime StartDate;
         public DayOfWeek MMBestDay;
         public int MMBestHour;
         public decimal MMBestHourAvgPlayers;
