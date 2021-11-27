@@ -28,6 +28,7 @@ namespace SLB
         private static bool loggedIn;
         private static bool connected;
         private static Timer callbackTimer;
+        private static bool callbackTimerStopped;
 
         // info for status message
         private static int playerCount;
@@ -36,7 +37,8 @@ namespace SLB
 
         // timer for updating messages
         private static Timer messageTimer;
-        static int errorCount = 0;
+        private static bool messageTimerStopped;
+        private static int errorCount = 0;
 
 
 
@@ -63,38 +65,36 @@ namespace SLB
             manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
 
             // initiate the connection
-            steamClient.Connect();
+            Login();
 
             // Steam callback timer
-            callbackTimer = new Timer(CALLBACK_WAIT) { AutoReset = true };
+            callbackTimer = new Timer(CALLBACK_WAIT) { AutoReset = false };
             callbackTimer.Elapsed += CallbackTimerTick;
+            callbackTimerStopped = false;
             callbackTimer.Start();
 
             // message update timer
-            messageTimer = new Timer(ENV_MESSAGE_WAIT) { AutoReset = true };
+            messageTimer = new Timer(ENV_MESSAGE_WAIT) { AutoReset = false };
             messageTimer.Elapsed += MessageTimerTick;
+            messageTimerStopped = false;
             messageTimer.Start();
         }
 
         public static void Stop()
         {
             Console.WriteLine("Steam.Stop()");
+
+            callbackTimerStopped = true;
             callbackTimer?.Stop();
             callbackTimer?.Dispose();
             callbackTimer = null;
 
+            messageTimerStopped = true;
             messageTimer?.Stop();
             messageTimer?.Dispose();
             messageTimer = null;
 
-            if (loggedIn)
-            {
-                steamUser?.LogOff();
-            }
-            else
-            {
-                steamClient?.Disconnect();
-            }
+            Disconnect();
             
             while (connected)
             {
@@ -102,7 +102,42 @@ namespace SLB
             }
         }
 
-        static void CallbackTimerTick(object caller, ElapsedEventArgs e)
+        public static LobbyInfo FindLobbyInfo(ulong id)
+        {
+            return Steam.lobbyInfos.Find(x => x.id == id);
+        }
+
+        private static void Login()
+        {
+            Console.WriteLine("Steam.Login()");
+            if (!connected)
+            {
+                steamClient.Connect();
+            }
+            else if (!loggedIn)
+            {
+                steamUser.LogOn(new SteamUser.LogOnDetails
+                {
+                    Username = ENV_STEAM_USER,
+                    Password = ENV_STEAM_PASS,
+                });
+            }
+        }
+
+        private static void Disconnect()
+        {
+            Console.WriteLine("steamClient.Disconnect()");
+            if (loggedIn)
+            {
+                steamUser.LogOff();
+            }
+            else if (connected)
+            {
+                steamClient.Disconnect();
+            }
+        }
+
+        private static void CallbackTimerTick(object caller, ElapsedEventArgs e)
         {
             try
             {
@@ -112,10 +147,17 @@ namespace SLB
             {
                 Console.WriteLine("Steam.CallbackTimerTick() Exception!\n" + ex);
             }
+
+            // reset timer
+            if (!callbackTimerStopped)
+            {
+                callbackTimer.Start();
+            }
         }
 
-        static async void MessageTimerTick(object caller, ElapsedEventArgs e)
+        private static async void MessageTimerTick(object caller, ElapsedEventArgs e)
         {
+            Console.WriteLine("MessageTimerTick() Discord.loggedIn:{0} Steam.loggedIn:{1}", Discord.loggedIn, loggedIn);
             try
             {
                 // web status
@@ -138,22 +180,21 @@ namespace SLB
                 }
                 else
                 {
-                    playerCount = -1;
-                    lobbyStats = new LobbyStats();
-                    lobbyInfos = new List<LobbyInfo>();
+                    playerCount = -1; // indicates lobby info is unavailable
                     if (loggedIn)
                     {
                         errorCount++;
                         if (errorCount == MAX_ERRORS)
                         {
-                            Console.WriteLine("MessageTimerTickError() Failed to refresh {0} times, disconnecting from Steam.", MAX_ERRORS);
+                            Console.WriteLine("MessageTimerTick() Failed to refresh {0} times.", MAX_ERRORS);
+                            Console.WriteLine("steamClient.Disconnect()");
                             steamClient.Disconnect();
                             errorCount = 0;
                         }
                     }
                     else
                     {
-                        steamClient.Connect();
+                        Login();
                     }
                 }
 
@@ -164,9 +205,15 @@ namespace SLB
             {
                 Console.WriteLine("Steam.MessageTimerTick() Exception!\n" + ex);
             }
+
+            // reset timer
+            if (!messageTimerStopped)
+            {
+                messageTimer.Start();
+            }
         }
 
-        static async Task<bool> RefreshLobbyInfo()
+        private static async Task<bool> RefreshLobbyInfo()
         {
             // get number of current players
             try
@@ -217,36 +264,33 @@ namespace SLB
             return true;
         }
 
-        static void OnConnected(SteamClient.ConnectedCallback callback)
+        private static void OnConnected(SteamClient.ConnectedCallback callback)
         {
             Console.WriteLine("Steam.OnConnected()");
-            steamUser.LogOn(new SteamUser.LogOnDetails
-            {
-                Username = ENV_STEAM_USER,
-                Password = ENV_STEAM_PASS,
-            });
+            connected = true;
+            Login();
         }
 
-        static void OnDisconnected(SteamClient.DisconnectedCallback callback)
+        private static void OnDisconnected(SteamClient.DisconnectedCallback callback)
         {
             Console.WriteLine("Steam.OnLoggedOff() UserInitiated:" + callback.UserInitiated);
             loggedIn = false;
-            connected = false;        
+            connected = false;
         }
 
-        static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
+        private static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
         {
             Console.WriteLine("Steam.OnLoggedOn() Result: {0} / {1}", callback.Result, callback.ExtendedResult);
             loggedIn = callback.Result == EResult.OK;
         }
 
-        static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
+        private static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
         {
             Console.WriteLine("Steam.OnLoggedOff() Result:" + callback.Result);
-            loggedIn = false;       
+            loggedIn = false;
         }
 
-        static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
+        private static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
         {
             if (lobbyInfos == null)
             {
@@ -317,7 +361,7 @@ namespace SLB
             });
         }
 
-        public static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
+        private static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
         {
             // New empty lobby info
             LobbyInfo lobbyInfo = new LobbyInfo()
@@ -363,7 +407,7 @@ namespace SLB
             return lobbyInfo;
         }
 
-        public static LobbyDetails ProcessLobbyDetails(string data)
+        private static LobbyDetails ProcessLobbyDetails(string data)
         {
             byte[] bytes = Convert.FromBase64String(data);
             LobbyDetails lobbyData = new LobbyDetails() 
@@ -400,7 +444,7 @@ namespace SLB
             return lobbyData;
         }
 
-        public static ulong ExtractBits(byte[] bytes, int bitOffset, int bitLength)
+        private static ulong ExtractBits(byte[] bytes, int bitOffset, int bitLength)
         {
             int byteOffset = bitOffset / 8;
             int bitEnd = bitOffset + bitLength;
@@ -442,11 +486,6 @@ namespace SLB
             }
 
             return data & ((1ul << bitLength) - 1);
-        }
-
-        public static LobbyInfo FindLobbyInfo(ulong id)
-        {
-            return Steam.lobbyInfos.Find(x => x.id == id);
         }
     }
 }

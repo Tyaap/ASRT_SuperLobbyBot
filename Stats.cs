@@ -116,8 +116,8 @@ namespace SLB
         public static void Restore()
         {
             Console.WriteLine("Stats.Restore()");
-            int datasets = 0; 
-            int entries = 0;
+            int totalEntries = 0;
+            int totalDatasets = 0;
             try
             {
                 using (NpgsqlConnection connection = new NpgsqlConnection(ENV_CONNECTION_STR))
@@ -130,40 +130,70 @@ namespace SLB
                     {
                         while (reader.Read())
                         {
-                            datasets++;
+                            totalDatasets++;
                             using (Stream s = reader.GetStream(reader.GetOrdinal("datasets")))
-                            using (DeflateStream ds = new DeflateStream(s, CompressionMode.Decompress))
                             {
-                                while(ReadEntryData(ds, out DateTime timestamp, out List<LobbyInfo> lobbyInfos))
+                                int entries = LoadDataSet(s, out DateTime startDate, out DateTime endDate);
+                                if (entries == 0)
                                 {
-                                    ProcessEntry(timestamp, lobbyInfos, false);
-                                    entries++;
-                                    if (entries == 1)
-                                    {
-                                        StartDate = timestamp;
-                                    }
+                                    continue;
                                 }
-                            }
+                                totalEntries += entries;
+                                Console.WriteLine("Dataset number:{0} startDate:{1} endDate:{2} entries:{3}", totalDatasets, startDate, endDate, entries);
+                                if (startDate < StartDate)
+                                {
+                                    StartDate = startDate;
+                                }
+                            }      
                         }
                     }
                 }
             }
             catch(Exception e)
             {
-                Console.WriteLine("Stats.Restore() Database exception!\n" + e); 
+                Console.WriteLine("Stats.Restore() Database exception!\n" + e);
             }
-
-            Console.WriteLine("Stats.Restore() Loaded {0} entries from {1} datasets.", entries, datasets);
+            Console.WriteLine("Stats.Restore() totalDatasets:{0} totalEntries:{1}", totalDatasets, totalEntries);
         }
+
+        private static int LoadDataSet(Stream s, out DateTime startDate, out DateTime endDate)
+        {
+            int entries = 0;
+            startDate = DateTime.MinValue;
+            endDate = DateTime.MinValue;
+            try
+            {
+                using (DeflateStream ds = new DeflateStream(s, CompressionMode.Decompress))
+                {
+                    
+                    while(ReadEntryData(ds, out DateTime timestamp, out List<LobbyInfo> lobbyInfos))
+                    {
+                        ProcessEntry(timestamp, lobbyInfos, false);
+                        entries++;
+                        if (entries == 1)
+                        {
+                            startDate = timestamp;
+                        }
+                        endDate = timestamp;
+                    }
+                }
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Stats.LoadDataSet() Exception!\n" + ex);
+            }
+            return entries;
+        }
+
 
         // read entry from a decompressed dataset stream
         // lobbyInfos will only contain the type and player count for each lobby (no other info)
-        private static bool ReadEntryData(Stream stream, out DateTime timestamp, out List<LobbyInfo> lobbyInfos)
+        private static bool ReadEntryData(Stream s, out DateTime timestamp, out List<LobbyInfo> lobbyInfos)
         {
             try
             {
                 lobbyInfos = new List<LobbyInfo>();
-                using (BinaryReader br = new BinaryReader(stream, System.Text.Encoding.Default, true))
+                using (BinaryReader br = new BinaryReader(s, System.Text.Encoding.Default, true))
                 {
                     // timestamp
                     timestamp = DateTime.FromBinary(br.ReadInt64());

@@ -5,33 +5,41 @@ using System.Timers;
 using System.Threading.Tasks;
 using System.Net.Http;
 using System;
+using System.Diagnostics;
 
 namespace SLB
 {
     static class Web
     {
         // environment variables
-        static int ENV_PORT = int.Parse(Environment.GetEnvironmentVariable("PORT"));
+        private static int ENV_PORT => int.Parse(Environment.GetEnvironmentVariable("PORT"));
 
         // constants
-        const string HOST_ADDRESS = "https://super-lobby-bot.herokuapp.com/";
-        const int PING_INTERVAL = 60000;
+        private const string HOST_ADDRESS = "https://super-lobby-bot.herokuapp.com/";
+        private const int PING_INTERVAL = 60000;
 
         // web components
-        static IHost host;
-        static HttpClient client;
-        static Timer pingTimer;
+        private static IHost host;
+        private static HttpClient client;
+        private static Timer pingTimer;
+        private static bool pingTimerStopped;
+
+        // message
         public static string message = "Super Lobby Bot is starting...";
 
 
         public static async Task Start()
         {
             Console.WriteLine("Web.Start()");
+            
             host = CreateHostBuilder().Build();
             await host.StartAsync();
+
             client = new HttpClient();
+
             pingTimer = new Timer(PING_INTERVAL) { AutoReset = true };
             pingTimer.Elapsed += Ping;
+            pingTimerStopped = false;
             pingTimer.Start();
         }
 
@@ -43,14 +51,20 @@ namespace SLB
         public static void Stop()
         {
             Console.WriteLine("Web.Stop()");
+
+            pingTimerStopped = true;
             pingTimer?.Stop();
             pingTimer?.Dispose();
             pingTimer = null;
+
             client?.Dispose();
+            client = null;
+
             host?.Dispose();
+            host = null;
         }
 
-        public static IHostBuilder CreateHostBuilder() =>
+        private static IHostBuilder CreateHostBuilder() =>
             Host.CreateDefaultBuilder()
             .UseConsoleLifetime()
             .ConfigureLogging((logging) =>
@@ -64,7 +78,7 @@ namespace SLB
                 webBuilder.UseStartup<Startup>();
             });
 
-        public static void Ping(object caller, ElapsedEventArgs e)
+        private static void Ping(object caller, ElapsedEventArgs e)
         {
             try
             {
@@ -74,6 +88,35 @@ namespace SLB
             {
                 Console.WriteLine("Web.Ping() Exception!\n" + ex);
             }
+
+            // reset timer
+            if (!pingTimerStopped)
+            {
+                pingTimer.Start();
+            }
+        }
+
+        public static string MemoryStats()
+        {
+            Process process = Process.GetCurrentProcess();
+            return 
+                "Memory Stats\n" +
+                "Working set: " + PrettifyByte(process.WorkingSet64) + "\n" +
+                "Private memory: " + PrettifyByte(process.PrivateMemorySize64) + "\n" +
+                "Virtual memory: " + PrettifyByte(process.VirtualMemorySize64) + "\n";
+
+        }
+
+        private static string PrettifyByte(long allocatedMemory)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            int order = 0;
+            while (allocatedMemory >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                allocatedMemory = allocatedMemory / 1024;
+            }
+            return $"{allocatedMemory:0.##} {sizes[order]}";
         }
     }
 }

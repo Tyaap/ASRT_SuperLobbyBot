@@ -9,22 +9,32 @@ namespace SLB
         {
             Console.WriteLine("Super Lobby Bot: Hello!");
 
-            await Web.Start();            
-            Stats.Restore();
-            await Discord.Start();
-            Steam.Start();
-            await Web.WaitForShutdown();
-            Shutdown();
+            try
+            {
+                await Web.Start();     
+                Stats.Restore();
+                await Discord.Start();
+                Steam.Start();
+                await Web.WaitForShutdown();
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Main() Exception! \n" + ex);
+            }
+            finally
+            {   
+                await Shutdown();
+            }
 
             Console.WriteLine("Super Lobby Bot: Goodbye!");
         }
 
-        static void Shutdown()
+        static async Task Shutdown()
         {
             Console.WriteLine("Program.Shutdown()");
             Stats.SaveDataset();
             Steam.Stop();
-            Discord.Stop();
+            await Discord.Stop();
             Web.Stop();
         }
     }

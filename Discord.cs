@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using Discord;
@@ -61,39 +60,14 @@ namespace SLB
             await LoginAsync();
         }
 
-        public static void Stop()
+        public static async Task Stop()
         {
             Console.WriteLine("Discord.Stop()");
-            discordSocketClient?.StopAsync().GetAwaiter().GetResult();
+            await discordSocketClient?.StopAsync();
+            await discordSocketClient?.LogoutAsync();
             discordSocketClient?.Dispose();
-        }
-
-        public static async Task MessageRecieved(SocketMessage message)
-        {
-            try
-            {
-                Match m = Regex.Match(message.Content, @"steam:\/\/joinlobby\/212480\/[0-9]+");
-                if (m.Success)
-                {
-                    Console.WriteLine("Discord.OnMessageRecieved() Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
-                    ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
-                    LobbyInfo lobbyInfo = Steam.FindLobbyInfo(id);
-                    if (lobbyInfo == null || lobbyInfo.type != 3)
-                    {
-                        return; // lobby does not exist or is already visible
-                    }
-                    visibleCustomGames.Add(id);
-                    if(currentStatusMessages.TryGetValue((message.Channel as SocketGuildChannel).Guild.Id, out var channelMessagePair))
-                    {
-                        await message.Channel.SendMessageAsync("Added " + lobbyInfo.name + " to " + channelMessagePair.Item1.Mention + "!");
-                    }         
-                }
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine("Discord.OnMessageRecieved() Exception!\n" + ex);
-            }
-        }        
+            discordSocketClient = null;
+        }       
 
         public static async Task UpdateStatus(DateTime timestamp, int playerCount, List<LobbyInfo> lobbyInfos, LobbyStats lobbyStats)
         {
@@ -124,7 +98,7 @@ namespace SLB
                 await LoginAsync();
                 if (!loggedIn)
                 {
-                    Console.WriteLine("Not logged in, skipping update.");
+                    Console.WriteLine("Discord.UpdateStatus() Not logged in, skipping update.");
                     return;
                 }
             }
@@ -167,8 +141,8 @@ namespace SLB
             builder.WithColor(LOBBY_COLOUR);
             builder.WithTitle("Matchmaking Stats");
             builder.WithDescription("Since " + lobbyStats.StartDate.ToString(CLOCK_FORMAT) + " GMT");
-            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.00") + " Players");
-            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.00") + " Players");
+            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.##") + " Players");
+            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.##") + " Players");
             builder.AddField("Most Activity Ever", lobbyStats.MMAllTimeBestDate.ToString(CLOCK_FORMAT) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
             embeds.Add(builder.Build());
 
@@ -235,10 +209,10 @@ namespace SLB
             {
                 guilds = await discordSocketClient.Rest.GetGuildsAsync();
             }
-            catch (Exception e)
+            catch (HttpException ex)
             {
-                Console.WriteLine("Guild list retrieval failed!");
-                Console.WriteLine(e);
+                Console.WriteLine("Discord.UpdateStatus() Guild list retrieval failed!");
+                UpdateStatusError(ex);
                 return;
             }
 
@@ -249,7 +223,7 @@ namespace SLB
                 bool newChannel = !currentStatusMessages.TryGetValue(guild.Id, out var channelMessagePair);
                 if (newChannel)
                 {
-                    Console.WriteLine("Setting up status channel on {0} ({1})...", guild.Name, guild.Id);
+                    Console.WriteLine("Discord.UpdateStatus() Setting up status channel on {0} ({1})", guild.Name, guild.Id);
                     try
                     {
                         // look for old status channels
@@ -284,7 +258,7 @@ namespace SLB
                             // insufficient messages, start from scratch to ensure messages displayed as one.
                             if (statusMessages.Count < ENV_MESSAGE_COUNT)
                             {
-                                Console.WriteLine("Insufficient messages, starting from scratch...");
+                                Console.WriteLine("Discord.UpdateStatus() Insufficient messages, starting from scratch...");
                                 await statusChannel.DeleteMessagesAsync(statusMessages);
                                 statusMessages.Clear();
                             }
@@ -297,12 +271,11 @@ namespace SLB
                         // store channel/message pair
                         channelMessagePair = new Tuple<ITextChannel, List<IUserMessage>>(statusChannel, statusMessages);
                         currentStatusMessages.Add(guild.Id, channelMessagePair);
-                        Console.WriteLine("Status channel setup complete!");
                     }
-                    catch (HttpException e)
+                    catch (HttpException ex)
                     {
-                        Console.WriteLine("Status channel setup failed!");
-                        UpdateStatusError(guild.Id, e);
+                        Console.WriteLine("Discord.UpdateStatus() Status channel setup failed!");
+                        UpdateStatusError(ex, guild.Id);
                         continue;
                     }
                 }
@@ -318,10 +291,10 @@ namespace SLB
                         channelUpdateTime = DateTime.Now;
                     }
                 }
-                catch (HttpException e)
+                catch (HttpException ex)
                 {
-                    Console.WriteLine("Failed to set status channel name on server {0} ({1})", guild.Name, guild.Id);
-                    UpdateStatusError(guild.Id, e);
+                    Console.WriteLine("Discord.UpdateStatus() Failed to set status channel name on server {0} ({1})", guild.Name, guild.Id);
+                    UpdateStatusError(ex, guild.Id);
                     continue;
                 }
 
@@ -351,17 +324,17 @@ namespace SLB
                         System.Threading.Thread.Sleep(500); // 0.5 second delay between messages
                     }
                 }
-                catch (HttpException e)
+                catch (HttpException ex)
                 {
-                    Console.WriteLine("Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);
-                    UpdateStatusError(guild.Id, e);
+                    Console.WriteLine("Discord.UpdateStatus() Failed to send/update a message to server {0} ({1})", guild.Name, guild.Id);
+                    UpdateStatusError(ex, guild.Id);
                     continue;
                 }
 
                 // delete excess messages once the message count falls below the target message allocation
                 if (messages.Count <= ENV_MESSAGE_COUNT && ENV_MESSAGE_COUNT < channelMessagePair.Item2.Count)
                 {
-                    Console.WriteLine("Deleting excess messages...");
+                    Console.WriteLine("Discord.UpdateStatus() Deleting excess messages...");
                     await channelMessagePair.Item1.DeleteMessagesAsync(channelMessagePair.Item2.GetRange(ENV_MESSAGE_COUNT, channelMessagePair.Item2.Count - ENV_MESSAGE_COUNT));
                     channelMessagePair.Item2.RemoveRange(ENV_MESSAGE_COUNT, channelMessagePair.Item2.Count - ENV_MESSAGE_COUNT);
                 }
@@ -370,7 +343,7 @@ namespace SLB
             lastMessageCount = messages.Count;
         }
 
-        public static void UpdateStatusError(ulong guildId, HttpException e)
+        private static void UpdateStatusError(HttpException e, ulong guildId = 0)
         {
             switch (e.DiscordCode)
             {
@@ -388,7 +361,7 @@ namespace SLB
             }
         }
 
-        public static string LobbyCountMessage(int lobbyCount, int playerCount, string lobbyType)
+        private static string LobbyCountMessage(int lobbyCount, int playerCount, string lobbyType)
         {
             if (playerCount == 0)
             {
@@ -404,7 +377,7 @@ namespace SLB
             }
         }
 
-        public static string HourStr(int hour)
+        private static string HourStr(int hour)
         {
             bool am = hour < 12;
             hour %= 12;
@@ -415,7 +388,34 @@ namespace SLB
             return hour + (am ? "AM" : "PM");
         }
 
-        public static async Task LoginAsync()
+        private static async Task MessageRecieved(SocketMessage message)
+        {
+            try
+            {
+                Match m = Regex.Match(message.Content, @"steam:\/\/joinlobby\/212480\/[0-9]+");
+                if (m.Success)
+                {
+                    Console.WriteLine("Discord.OnMessageRecieved() Got lobby link in message! " + message.Content.Substring(m.Index, m.Length));
+                    ulong id = ulong.Parse(message.Content.Substring(m.Index + 25, m.Length - 25));
+                    LobbyInfo lobbyInfo = Steam.FindLobbyInfo(id);
+                    if (lobbyInfo == null || lobbyInfo.type != 3)
+                    {
+                        return; // lobby does not exist or is already visible
+                    }
+                    visibleCustomGames.Add(id);
+                    if(currentStatusMessages.TryGetValue((message.Channel as SocketGuildChannel).Guild.Id, out var channelMessagePair))
+                    {
+                        await message.Channel.SendMessageAsync("Added " + lobbyInfo.name + " to " + channelMessagePair.Item1.Mention + "!");
+                    }         
+                }
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine("Discord.OnMessageRecieved() Exception!\n" + ex);
+            }
+        } 
+
+        private static async Task LoginAsync()
         {
             Console.WriteLine("Discord.LoginAsync()");
             try
@@ -464,7 +464,7 @@ namespace SLB
             return Task.CompletedTask;
         }
 
-        public static async Task RegisterCommandsAsync()
+        private static async Task RegisterCommandsAsync()
         {
             Console.WriteLine("Discord.RegisterCommandsAsync()");
             discordSocketClient.MessageReceived += HandleCommandAsync;
