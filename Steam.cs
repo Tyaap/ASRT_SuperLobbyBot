@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Timers;
+using System.Threading;
 using System.Threading.Tasks;
 using SteamKit2;
+using static SLB.Tools;
 
 namespace SLB
 {
@@ -16,8 +17,8 @@ namespace SLB
 
         // constants
         public const int APPID = 212480;
-        const int CALLBACK_WAIT = 100;
-        const int MAX_ERRORS = 10;
+        private const int CALLBACK_WAIT = 100;
+        private const int MAX_ERRORS = 10;
 
         // Steam client
         private static SteamClient steamClient;
@@ -28,7 +29,7 @@ namespace SLB
         private static bool loggedIn;
         private static bool connected;
         private static Timer callbackTimer;
-        private static bool callbackTimerStopped;
+        private static object callbackTimerLock = new object();
 
         // info for status message
         private static int playerCount;
@@ -37,7 +38,7 @@ namespace SLB
 
         // timer for updating messages
         private static Timer messageTimer;
-        private static bool messageTimerStopped;
+        private static object messageTimerLock = new object();
         private static int errorCount = 0;
 
 
@@ -68,34 +69,29 @@ namespace SLB
             Login();
 
             // Steam callback timer
-            callbackTimer = new Timer(CALLBACK_WAIT) { AutoReset = false };
-            callbackTimer.Elapsed += CallbackTimerTick;
-            callbackTimerStopped = false;
-            callbackTimer.Start();
+            callbackTimer = new Timer(CallbackTimerTick, null, CALLBACK_WAIT, -1);
 
             // message update timer
-            messageTimer = new Timer(ENV_MESSAGE_WAIT) { AutoReset = false };
-            messageTimer.Elapsed += MessageTimerTick;
-            messageTimerStopped = false;
-            messageTimer.Start();
+            messageTimer = new Timer(MessageTimerTick, null, ENV_MESSAGE_WAIT, -1);
         }
 
         public static void Stop()
         {
             Console.WriteLine("Steam.Stop()");
 
-            callbackTimerStopped = true;
-            callbackTimer?.Stop();
-            callbackTimer?.Dispose();
-            callbackTimer = null;
+            lock (messageTimerLock)
+            {
+                messageTimer?.Dispose();
+                messageTimer = null;
+            }
 
-            messageTimerStopped = true;
-            messageTimer?.Stop();
-            messageTimer?.Dispose();
-            messageTimer = null;
+            lock (callbackTimerLock)
+            {
+                callbackTimer?.Dispose();
+                callbackTimer = null;
+            }
 
-            Disconnect();
-            
+            Disconnect();      
             while (connected)
             {
                 manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(CALLBACK_WAIT));
@@ -137,79 +133,89 @@ namespace SLB
             }
         }
 
-        private static void CallbackTimerTick(object caller, ElapsedEventArgs e)
+        private static void CallbackTimerTick(object state)
         {
-            try
+            lock (callbackTimerLock)
             {
-                manager.RunWaitCallbacks();
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine("Steam.CallbackTimerTick() Exception!\n" + ex);
-            }
+                if (callbackTimer == null)
+                {
+                    return; // timer disposed
+                }
 
-            // reset timer
-            if (!callbackTimerStopped)
-            {
-                callbackTimer.Start();
+                try
+                {
+                    manager.RunWaitCallbacks();
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine("Steam.CallbackTimerTick() Exception!\n" + ex);
+                }
+
+                // reset timer
+                callbackTimer.Change(CALLBACK_WAIT, -1);
             }
         }
 
-        private static async void MessageTimerTick(object caller, ElapsedEventArgs e)
+        private static void MessageTimerTick(object state)
         {
-            Console.WriteLine("MessageTimerTick() Discord.loggedIn:{0} Steam.loggedIn:{1}", Discord.loggedIn, loggedIn);
-            try
+            lock (messageTimerLock)
             {
-                // web status
-                Web.message = string.Format(
-                    "Discord logged in: {0}\n" +
-                    "Steam logged in: {1}\n" +
-                    "Super Lobby Bot is {2}",
-                Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "working! :)" : "not working! :(");
-
-                DateTime timestamp = DateTime.Now;
-                if (loggedIn && await RefreshLobbyInfo())
+                if (messageTimer == null)
                 {
-                    // record data
-                    Stats.WriteEntryData(timestamp, lobbyInfos);
-
-                    // get lobby stats
-                    lobbyStats = Stats.ProcessEntry(timestamp, lobbyInfos);
-
-                    errorCount = 0;
+                    return; // timer disposed
                 }
-                else
+
+                Console.WriteLine("MessageTimerTick() Discord.loggedIn:{0} Steam.loggedIn:{1}", Discord.loggedIn, loggedIn);
+                try
                 {
-                    playerCount = -1; // indicates lobby info is unavailable
-                    if (loggedIn)
+                    // web status
+                    Web.message = string.Format(
+                        "Discord logged in: {0}\n" +
+                        "Steam logged in: {1}\n" +
+                        "Super Lobby Bot is {2}",
+                    Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "working! :)" : "not working! :(");
+
+                    DateTime timestamp = DateTime.UtcNow;
+                    if (loggedIn && RefreshLobbyInfo().GetAwaiter().GetResult())
                     {
-                        errorCount++;
-                        if (errorCount == MAX_ERRORS)
-                        {
-                            Console.WriteLine("MessageTimerTick() Failed to refresh {0} times.", MAX_ERRORS);
-                            Console.WriteLine("steamClient.Disconnect()");
-                            steamClient.Disconnect();
-                            errorCount = 0;
-                        }
+                        // record data
+                        Stats.WriteEntryData(timestamp, lobbyInfos);
+
+                        // get lobby stats
+                        lobbyStats = Stats.ProcessEntry(timestamp, lobbyInfos);
+
+                        errorCount = 0;
                     }
                     else
                     {
-                        Login();
+                        playerCount = -1; // indicates lobby info is unavailable
+                        if (loggedIn)
+                        {
+                            errorCount++;
+                            if (errorCount == MAX_ERRORS)
+                            {
+                                Console.WriteLine("MessageTimerTick() Failed to refresh {0} times.", MAX_ERRORS);
+                                Console.WriteLine("steamClient.Disconnect()");
+                                steamClient.Disconnect();
+                                errorCount = 0;
+                            }
+                        }
+                        else
+                        {
+                            Login();
+                        }
                     }
+
+                    // update status messages
+                    Discord.UpdateStatus(timestamp, playerCount, lobbyInfos, lobbyStats).GetAwaiter().GetResult();
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine("Steam.MessageTimerTick() Exception!\n" + ex);
                 }
 
-                // update status messages
-                Discord.UpdateStatus(timestamp, playerCount, lobbyInfos, lobbyStats).GetAwaiter().GetResult();
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine("Steam.MessageTimerTick() Exception!\n" + ex);
-            }
-
-            // reset timer
-            if (!messageTimerStopped)
-            {
-                messageTimer.Start();
+                // reset timer
+                messageTimer.Change(ENV_MESSAGE_WAIT, -1);
             }
         }
 
@@ -442,50 +448,6 @@ namespace SLB
             lobbyData.unknown11 = (ushort)ExtractBits(bytes, 115 + hostNameLength * 8, 16);
 
             return lobbyData;
-        }
-
-        private static ulong ExtractBits(byte[] bytes, int bitOffset, int bitLength)
-        {
-            int byteOffset = bitOffset / 8;
-            int bitEnd = bitOffset + bitLength;
-            int bitRemainder = bitEnd % 8;
-            int byteEnd = bitEnd / 8 + (bitRemainder > 0 ? 1 : 0);
-            int byteLength =  byteEnd - byteOffset;
-
-            ulong data;
-            List<byte> tmp = new List<byte>(bytes[byteOffset..byteEnd]);
-            tmp.Reverse();
-            if (byteLength <= 1)
-            {
-                data = tmp[0];
-            }
-            else if (byteLength <= 2)
-            {
-                data = BitConverter.ToUInt16(tmp.ToArray());
-            }
-            else if (byteLength <= 4)
-            {
-                if (byteLength == 3)
-                {
-                    tmp.Add(0);
-                }
-                data = BitConverter.ToUInt32(tmp.ToArray());
-            }
-            else
-            {
-                while (tmp.Count < 8)
-                {
-                    tmp.Add(0);
-                }
-                data = BitConverter.ToUInt64(tmp.ToArray());
-            }
-
-            if (bitRemainder > 0)
-            {
-                data >>= (8 - bitRemainder);
-            }
-
-            return data & ((1ul << bitLength) - 1);
         }
     }
 }

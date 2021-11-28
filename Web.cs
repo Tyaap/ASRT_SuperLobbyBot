@@ -1,11 +1,10 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Timers;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Net.Http;
 using System;
-using System.Diagnostics;
 
 namespace SLB
 {
@@ -22,7 +21,7 @@ namespace SLB
         private static IHost host;
         private static HttpClient client;
         private static Timer pingTimer;
-        private static bool pingTimerStopped;
+        private static object pingTimerLock = new object();
 
         // message
         public static string message = "Super Lobby Bot is starting...";
@@ -37,10 +36,7 @@ namespace SLB
 
             client = new HttpClient();
 
-            pingTimer = new Timer(PING_INTERVAL) { AutoReset = true };
-            pingTimer.Elapsed += Ping;
-            pingTimerStopped = false;
-            pingTimer.Start();
+            pingTimer = new Timer(Ping, null, PING_INTERVAL, -1);
         }
 
         public static async Task WaitForShutdown()
@@ -52,10 +48,11 @@ namespace SLB
         {
             Console.WriteLine("Web.Stop()");
 
-            pingTimerStopped = true;
-            pingTimer?.Stop();
-            pingTimer?.Dispose();
-            pingTimer = null;
+            lock (pingTimerLock)
+            {
+                pingTimer?.Dispose();
+                pingTimer = null;
+            }
 
             client?.Dispose();
             client = null;
@@ -78,45 +75,30 @@ namespace SLB
                 webBuilder.UseStartup<Startup>();
             });
 
-        private static void Ping(object caller, ElapsedEventArgs e)
+        private static void Ping(object caller)
         {
-            try
+            lock (pingTimerLock)
             {
-                client.GetStringAsync(HOST_ADDRESS);
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine("Web.Ping() Exception!\n" + ex);
-            }
+                if (pingTimer == null)
+                {
+                    return; // timer disposed
+                }
 
-            // reset timer
-            if (!pingTimerStopped)
-            {
-                pingTimer.Start();
-            }
-        }
+                try
+                {
+                    client.GetStringAsync(HOST_ADDRESS);
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine("Web.Ping() Exception!\n" + ex);
+                }
 
-        public static string MemoryStats()
-        {
-            Process process = Process.GetCurrentProcess();
-            return 
-                "Memory Stats\n" +
-                "Working set: " + PrettifyByte(process.WorkingSet64) + "\n" +
-                "Private memory: " + PrettifyByte(process.PrivateMemorySize64) + "\n" +
-                "Virtual memory: " + PrettifyByte(process.VirtualMemorySize64) + "\n";
+                // reset timer
+                pingTimer.Change(PING_INTERVAL, -1);
+            }
 
         }
 
-        private static string PrettifyByte(long allocatedMemory)
-        {
-            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
-            int order = 0;
-            while (allocatedMemory >= 1024 && order < sizes.Length - 1)
-            {
-                order++;
-                allocatedMemory = allocatedMemory / 1024;
-            }
-            return $"{allocatedMemory:0.##} {sizes[order]}";
-        }
+
     }
 }

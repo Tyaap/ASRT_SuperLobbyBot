@@ -5,6 +5,8 @@ namespace SLB
 {
     static class Program
     {
+        public static readonly TimeZoneInfo TIMEZONE = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
+
         static async Task Main()
         {
             Console.WriteLine("Super Lobby Bot: Hello!");
@@ -12,30 +14,24 @@ namespace SLB
             try
             {
                 await Web.Start();     
-                Stats.Restore();
+                Stats.LoadDatasets();
                 await Discord.Start();
                 Steam.Start();
                 await Web.WaitForShutdown();
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine("Main() Exception! \n" + ex);
             }
             finally
             {   
-                await Shutdown();
+                Stats.SaveDataset();
+                Steam.Stop();
+                Discord.Stop();
+                Web.Stop();
             }
 
             Console.WriteLine("Super Lobby Bot: Goodbye!");
-        }
-
-        static async Task Shutdown()
-        {
-            Console.WriteLine("Program.Shutdown()");
-            Stats.SaveDataset();
-            Steam.Stop();
-            await Discord.Stop();
-            Web.Stop();
         }
     }
 }

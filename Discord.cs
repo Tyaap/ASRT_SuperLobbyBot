@@ -9,6 +9,7 @@ using Discord.Rest;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using static SLB.Tools;
 
 namespace SLB
 {
@@ -20,7 +21,6 @@ namespace SLB
         // constants
         private const bool SHOW_CUSTOM_GAMES = false;
         private const bool FULL_LOBBY_JOINABLE = true;
-        private const string CLOCK_FORMAT = "dd/MM/yy HH:mm:ss";
         private static readonly Color LOBBY_COLOUR = Color.Gold;
 
         // Discord client
@@ -60,11 +60,9 @@ namespace SLB
             await LoginAsync();
         }
 
-        public static async Task Stop()
+        public static void Stop()
         {
             Console.WriteLine("Discord.Stop()");
-            await discordSocketClient?.StopAsync();
-            await discordSocketClient?.LogoutAsync();
             discordSocketClient?.Dispose();
             discordSocketClient = null;
         }       
@@ -110,7 +108,7 @@ namespace SLB
             // Overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("**__S&ASRT Lobby Info — {0} GMT__**", timestamp.ToString(CLOCK_FORMAT));
+                string statusOverview = string.Format("**__S&ASRT Lobby Info — {0}__**", DateTimeWithOffset(timestamp, Program.TIMEZONE));
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking");
                 statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom game");
@@ -140,10 +138,10 @@ namespace SLB
             EmbedBuilder builder = new EmbedBuilder();
             builder.WithColor(LOBBY_COLOUR);
             builder.WithTitle("Matchmaking Stats");
-            builder.WithDescription("Since " + lobbyStats.StartDate.ToString(CLOCK_FORMAT) + " GMT");
+            builder.WithDescription("Since " + DateTimeWithOffset(lobbyStats.StartDate, Program.TIMEZONE));
             builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.##") + " Players");
             builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.##") + " Players");
-            builder.AddField("Most Activity Ever", lobbyStats.MMAllTimeBestDate.ToString(CLOCK_FORMAT) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
+            builder.AddField("Most Activity Ever", DateTimeWithOffset(lobbyStats.MMAllTimeBestDate, Program.TIMEZONE) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
             embeds.Add(builder.Build());
 
             // Lobby messages
@@ -343,9 +341,9 @@ namespace SLB
             lastMessageCount = messages.Count;
         }
 
-        private static void UpdateStatusError(HttpException e, ulong guildId = 0)
+        private static void UpdateStatusError(HttpException ex, ulong guildId = 0)
         {
-            switch (e.DiscordCode)
+            switch (ex.DiscordCode)
             {
                 case 10003:
                     Console.WriteLine("Channel cound not be found!");
@@ -356,7 +354,7 @@ namespace SLB
                     currentStatusMessages.Remove(guildId);
                     return;
                 default:
-                    Console.WriteLine(e);
+                    Console.WriteLine(ex);
                     return;
             }
         }
@@ -375,17 +373,6 @@ namespace SLB
             {
                 return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby"); ;
             }
-        }
-
-        private static string HourStr(int hour)
-        {
-            bool am = hour < 12;
-            hour %= 12;
-            if (hour == 0)
-            {
-                hour = 12;
-            }
-            return hour + (am ? "AM" : "PM");
         }
 
         private static async Task MessageRecieved(SocketMessage message)
@@ -423,9 +410,9 @@ namespace SLB
                 await discordSocketClient.LoginAsync(TokenType.Bot, Environment.GetEnvironmentVariable("DISCORD_TOKEN"));
                 await discordSocketClient.StartAsync();
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine("Discord.LoginAsync() Exception!\n" + e);
+                Console.WriteLine("Discord.LoginAsync() Exception!\n" + ex);
             }
         }
 
