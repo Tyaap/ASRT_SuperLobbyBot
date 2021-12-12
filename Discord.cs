@@ -139,68 +139,86 @@ namespace SLB
             builder.WithColor(LOBBY_COLOUR);
             builder.WithTitle("Matchmaking Stats");
             builder.WithDescription("Since " + DateTimeWithOffset(lobbyStats.StartDate, Program.TIMEZONE));
-            builder.AddField("Most Active Hour (weekly average)", lobbyStats.MMBestDay + " " + HourStr(lobbyStats.MMBestHour) + " — " + lobbyStats.MMBestHourAvgPlayers.ToString("0.##") + " Players");
-            builder.AddField("Least Active Hour (weekly average)", lobbyStats.MMWorstDay + " " + HourStr(lobbyStats.MMWorstHour) + " — " + lobbyStats.MMWorstHourAvgPlayers.ToString("0.##") + " Players");
-            builder.AddField("Most Activity Ever", DateTimeWithOffset(lobbyStats.MMAllTimeBestDate, Program.TIMEZONE) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
+            
+            string timeList = "";
+            string avgList = "";
+            for (int i = 0; i < lobbyStats.BestHours.Length; i++)
+            {
+                if (i > 0)
+                {
+                    timeList += "\n";
+                    avgList += "\n";
+                }
+                HourStats hourStats = lobbyStats.BestHours[i];
+                timeList += hourStats.Day + " " + HourStr(hourStats.Hour);
+                avgList += hourStats.Average.ToString("0.##");
+            }
+
+            builder.AddField("Best times to play", timeList, inline: true);
+            builder.AddField("Average players", avgList, inline: true);
+            builder.AddField("Most players ever", DateTimeWithOffset(lobbyStats.MMAllTimeBestDate, Program.TIMEZONE) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
             embeds.Add(builder.Build());
 
             // Lobby messages
-            foreach (var lobbyInfo in lobbyInfos)
+            if (playerCount >= 0)
             {
-                if (lobbyInfo.hidden)
+                foreach (var lobbyInfo in lobbyInfos)
                 {
-                    continue; // hide this lobby
-                }
-
-                builder = new EmbedBuilder();
-                builder.WithColor(LOBBY_COLOUR);
-
-                // title
-                builder.WithTitle(lobbyInfo.name);
-
-                // description
-                if (lobbyInfo.state == -1)
-                {
-                    builder.WithDescription("Lobby initialising...");
-                }
-                else if (lobbyInfo.playerCount == 10 && !FULL_LOBBY_JOINABLE)
-                {
-                    builder.WithDescription("Lobby is full!");
-                }
-                else
-                {
-                    string desription = string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id);
-                    if (lobbyInfo.mod == Mod.CloNoBumpSupercharged)
+                    if (lobbyInfo.hidden)
                     {
-                        desription += "\nMod Required: https://github.com/Tyaap/ASRT_CloNoBump_Supercharged/releases";
+                        continue; // hide this lobby
                     }
-                    builder.WithDescription(desription);
-                }
 
-                // fields
-                builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
-                builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
-                if (lobbyInfo.state >= 0)
-                {
-                    int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);
-                    (int mapId, bool mirror) = LobbyTools.GetMapId(lobbyInfo.type, lobbyInfo.matchMode);
-                    builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, eventId, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
-                    builder.AddField("Event", LobbyTools.GetEventName(eventId), true);
-                    builder.AddField(LobbyTools.GetMapType(eventId), LobbyTools.GetMapName(eventId, mapId, mirror), true);
-                    if (lobbyInfo.type == 3)
+                    builder = new EmbedBuilder();
+                    builder.WithColor(LOBBY_COLOUR);
+
+                    // title
+                    builder.WithTitle(lobbyInfo.name);
+
+                    // description
+                    if (lobbyInfo.state == -1)
                     {
-                        builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                        builder.WithDescription("Lobby initialising...");
+                    }
+                    else if (lobbyInfo.playerCount == 10 && !FULL_LOBBY_JOINABLE)
+                    {
+                        builder.WithDescription("Lobby is full!");
                     }
                     else
                     {
-                        builder.AddField("\u200B", "\u200B", true);
+                        string desription = string.Format("steam://joinlobby/{0}/{1}", Steam.APPID, lobbyInfo.id);
+                        if (lobbyInfo.mod == Mod.CloNoBumpSupercharged)
+                        {
+                            desription += "\nMod Required: https://github.com/Tyaap/ASRT_CloNoBump_Supercharged/releases";
+                        }
+                        builder.WithDescription(desription);
                     }
+
+                    // fields
+                    builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
+                    builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
+                    if (lobbyInfo.state >= 0)
+                    {
+                        int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);
+                        (int mapId, bool mirror) = LobbyTools.GetMapId(lobbyInfo.type, lobbyInfo.matchMode);
+                        builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, eventId, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
+                        builder.AddField("Event", LobbyTools.GetEventName(eventId), true);
+                        builder.AddField(LobbyTools.GetMapType(eventId), LobbyTools.GetMapName(eventId, mapId, mirror), true);
+                        if (lobbyInfo.type == 3)
+                        {
+                            builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                        }
+                        else
+                        {
+                            builder.AddField("\u200B", "\u200B", true);
+                        }
+                    }
+
+                    messages.Add("");
+                    embeds.Add(builder.Build());
                 }
-
-                messages.Add("");
-                embeds.Add(builder.Build());
             }
-
+            
             // get guilds
             IReadOnlyCollection<RestGuild> guilds = null;
             try
@@ -363,15 +381,19 @@ namespace SLB
         {
             if (playerCount == 0)
             {
-                return string.Format("**There are no {0} lobbies!**", lobbyType);
+                return string.Format("**There are no players in {0}.**", lobbyType);
             }
             else if (playerCount == 1)
             {
                 return string.Format("**1** player is in a {0} lobby.", lobbyType);
             }
+            else if (lobbyCount == 1)
+            {
+                return string.Format("**{0}** players are in a {1} lobby.", playerCount, lobbyType);
+            }
             else
             {
-                return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyCount > 1 ? "lobbies" : "lobby"); ;
+                return string.Format("**{0}** players are in {1} {2} lobbies.", playerCount, lobbyCount, lobbyType);
             }
         }
 

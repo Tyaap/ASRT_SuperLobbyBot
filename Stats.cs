@@ -32,6 +32,7 @@ namespace SLB
             }
         }
 
+        private const int BEST_HOURS_COUNT = 3;
         private static DateTime StartDate = DateTime.MinValue;
         private static List<byte> Dataset = new List<byte>();
         private static object DataLock = new object();
@@ -40,16 +41,46 @@ namespace SLB
 
 
         // data for live MM statistics
-        private static readonly Dictionary<DayOfWeek, int[]> MMWeekData = new Dictionary<DayOfWeek, int[]>() 
+        private static HourStats[] _MMWeekData = null;
+        private static HourStats[] MMWeekData
         {
-            { DayOfWeek.Monday, new int[48] },
-            { DayOfWeek.Tuesday, new int[48] },
-            { DayOfWeek.Wednesday, new int[48] },
-            { DayOfWeek.Thursday, new int[48] },
-            { DayOfWeek.Friday, new int[48] },
-            { DayOfWeek.Saturday, new int[48] },
-            { DayOfWeek.Sunday, new int[48] },
-        };
+            get
+            {
+                if (_MMWeekData == null)
+                {
+                    // initialise
+                    _MMWeekData = new HourStats[24 * 7];
+                    for (int i = 0; i < 7; i++)
+                    {
+                        for (int j = 0; j < 24; j++)
+                        {
+                            _MMWeekData[i * 24 + j] = new HourStats() 
+                            {
+                                Day = (DayOfWeek)i,
+                                Hour = j,
+                            };
+                        }
+                    }
+
+                }
+                return _MMWeekData;
+            }
+        }
+
+        private static HourStats[] _MMWeekDataSorted = null;
+        private static HourStats[] MMWeekDataSorted
+        {
+            get
+            {
+                if (_MMWeekDataSorted == null)
+                {
+                    // initialise with a shallow clone of MMWeekData
+                    _MMWeekDataSorted = new HourStats[24 * 7];
+                    MMWeekData.CopyTo(_MMWeekDataSorted, 0);
+                }
+                return _MMWeekDataSorted;
+            }
+        }
 
         private static DateTime MMAllTimeBestDate = DateTime.MinValue;
         private static int MMAllTimeBestPlayers = 0;
@@ -293,9 +324,11 @@ namespace SLB
             }
 
             // update MM data
-            int[] dayData = MMWeekData[timestamp.DayOfWeek];
-            dayData[programTime.Hour * 2] += lobbyStats.MMPlayers;
-            dayData[programTime.Hour * 2 + 1]++;
+            HourStats hourStats = MMWeekData[(int)programTime.DayOfWeek * 24 + programTime.Hour];
+            hourStats.Sum += lobbyStats.MMPlayers;
+            hourStats.Count++;
+            hourStats.Average = (decimal)hourStats.Sum / hourStats.Count;
+            
             if (lobbyStats.MMPlayers >= MMAllTimeBestPlayers)
             {
                 MMAllTimeBestPlayers = lobbyStats.MMPlayers;
@@ -309,41 +342,19 @@ namespace SLB
             }
 
             // MM stats
+            // all time best
             lobbyStats.MMAllTimeBestPlayers = MMAllTimeBestPlayers;
             lobbyStats.MMAllTimeBestDate = MMAllTimeBestDate;
-
-            lobbyStats.MMWorstHourAvgPlayers = decimal.MaxValue;
-            foreach(var pair in MMWeekData)
-            {
-                for (int i = 0; i < 24; i++)
-                {
-                    int count = pair.Value[i * 2 + 1];
-                    if (count == 0)
-                    {
-                        continue;
-                    }
-                    int sum = pair.Value[i * 2];
-                    decimal avgPlayers = (decimal)sum / count;
-                    if (avgPlayers >= lobbyStats.MMBestHourAvgPlayers)
-                    {
-                        lobbyStats.MMBestHourAvgPlayers = avgPlayers;
-                        lobbyStats.MMBestDay = pair.Key;
-                        lobbyStats.MMBestHour = i;
-                    }
-                    if (avgPlayers <= lobbyStats.MMWorstHourAvgPlayers)
-                    {
-                        lobbyStats.MMWorstHourAvgPlayers = avgPlayers;
-                        lobbyStats.MMWorstDay = pair.Key;
-                        lobbyStats.MMWorstHour = i;
-                    }
-                }
-            }
+            // best hours
+            Array.Sort(MMWeekDataSorted, (x, y) => -x.Average.CompareTo(y.Average));
+            lobbyStats.BestHours = new HourStats[BEST_HOURS_COUNT];
+            Array.Copy(MMWeekDataSorted, lobbyStats.BestHours, BEST_HOURS_COUNT);
 
             return lobbyStats;
         }
     }
 
-    public struct LobbyStats
+    public class LobbyStats
     {
         // lobby counts
         public int MMLobbies;
@@ -353,13 +364,17 @@ namespace SLB
 
         // MM stats
         public DateTime StartDate;
-        public DayOfWeek MMBestDay;
-        public int MMBestHour;
-        public decimal MMBestHourAvgPlayers;
-        public DayOfWeek MMWorstDay;
-        public int MMWorstHour;
-        public decimal MMWorstHourAvgPlayers;
+        public HourStats[] BestHours;
         public DateTime MMAllTimeBestDate;
         public int MMAllTimeBestPlayers;
+    }
+
+    public class HourStats
+    {
+        public DayOfWeek Day;
+        public int Hour;
+        public decimal Average;
+        public int Sum;
+        public int Count;
     }
 }
