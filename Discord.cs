@@ -22,6 +22,7 @@ namespace SLB
         private const bool SHOW_CUSTOM_GAMES = false;
         private const bool FULL_LOBBY_JOINABLE = true;
         private static readonly Color LOBBY_COLOUR = Color.Gold;
+        private const int MATCHMAKING_DATES_COUNT = 3;
 
         // Discord client
         private static DiscordSocketClient discordSocketClient;
@@ -108,10 +109,10 @@ namespace SLB
             // Overview message
             if (playerCount >= 0)
             {
-                string statusOverview = string.Format("**__S&ASRT Lobby Info — {0}__**", DateTimeWithOffset(timestamp, Program.TIMEZONE));
+                string statusOverview = string.Format("**__S&ASRT Lobby Info — <t:{0}:d> <t:{0}:T>__**", DatetimeToUnixTime(timestamp));
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
-                statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking");
-                statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom game");
+                statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking", "lobby", "lobbies");
+                statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom", "game", "games");
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
@@ -129,7 +130,7 @@ namespace SLB
                 string message = "**Lobby info unavailable!**";
                 if (DateTime.Now.DayOfWeek == DayOfWeek.Tuesday || DateTime.Now.DayOfWeek == DayOfWeek.Wednesday)
                 {
-                    message += "\n**Steam might be down for scheduled Tuesday maintenance.**";
+                    message += "\n**Steam might be down for scheduled maintenance.**";
                 }
                 messages.Add(message);
             }
@@ -137,26 +138,39 @@ namespace SLB
             // Overview message - matchmaking stats
             EmbedBuilder builder = new EmbedBuilder();
             builder.WithColor(LOBBY_COLOUR);
-            builder.WithTitle("Matchmaking Stats");
-            builder.WithDescription("Since " + DateTimeWithOffset(lobbyStats.StartDate, Program.TIMEZONE));
+            builder.WithTitle("Matchmaking stats");
+            builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
             
-            string timeList = "";
-            string avgList = "";
-            for (int i = 0; i < lobbyStats.BestHours.Length; i++)
+            Dictionary<HourStats, long> nextOccurances = new Dictionary<HourStats, long>();
+            foreach(HourStats hourStats in lobbyStats.BestHours)
             {
-                if (i > 0)
+                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, hourStats.Day, hourStats.Hour));
+                nextOccurances.Add(hourStats, unixTime - unixTime % 3600);
+            }
+            Array.Sort(lobbyStats.BestHours, (x, y) => nextOccurances[x].CompareTo(nextOccurances[y]));
+            string dateList = "";
+            string expList = "";
+            int n = 0;
+            foreach(HourStats hourStats in lobbyStats.BestHours)
+            {
+                if (n >= MATCHMAKING_DATES_COUNT)
                 {
-                    timeList += "\n";
-                    avgList += "\n";
+                    break;
                 }
-                HourStats hourStats = lobbyStats.BestHours[i];
-                timeList += hourStats.Day + " " + HourStr(hourStats.Hour);
-                avgList += hourStats.Average.ToString("0.##");
+                if (n > 0)
+                {
+                    dateList += "\n";
+                    expList += "\n";
+                }
+
+                dateList += string.Format("<t:{0}:F>", nextOccurances[hourStats]);
+                expList += string.Format("{0:0} to {1:0} (average {2:0.#}) ", hourStats.Average - hourStats.STD, hourStats.Average + hourStats.STD, hourStats.Average);
+                n++;
             }
 
-            builder.AddField("Best times to play", timeList, inline: true);
-            builder.AddField("Average players", avgList, inline: true);
-            builder.AddField("Most players ever", DateTimeWithOffset(lobbyStats.MMAllTimeBestDate, Program.TIMEZONE) + " — " + lobbyStats.MMAllTimeBestPlayers + " Players");
+            builder.AddField("Upcoming date", dateList, inline: true);
+            builder.AddField("Expected players", expList, inline: true);
+            builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t>  — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
             embeds.Add(builder.Build());
 
             // Lobby messages
@@ -377,23 +391,23 @@ namespace SLB
             }
         }
 
-        private static string LobbyCountMessage(int lobbyCount, int playerCount, string lobbyType)
+        private static string LobbyCountMessage(int lobbyCount, int playerCount, string lobbyType, string lobbySingle, string lobbyPlural)
         {
             if (playerCount == 0)
             {
-                return string.Format("**There are no players in {0}.**", lobbyType);
+                return string.Format("There are **no players** in {0}.", lobbyType);
             }
             else if (playerCount == 1)
             {
-                return string.Format("**1** player is in a {0} lobby.", lobbyType);
+                return string.Format("**1** player is in a {0} {1}.", lobbyType, lobbySingle);
             }
             else if (lobbyCount == 1)
             {
-                return string.Format("**{0}** players are in a {1} lobby.", playerCount, lobbyType);
+                return string.Format("**{0}** players are in a {1} {2}.", playerCount, lobbyType, lobbySingle);
             }
             else
             {
-                return string.Format("**{0}** players are in {1} {2} lobbies.", playerCount, lobbyCount, lobbyType);
+                return string.Format("**{0}** players are in **{1}** {2} {3}.", playerCount, lobbyCount, lobbyType, lobbyPlural);
             }
         }
 

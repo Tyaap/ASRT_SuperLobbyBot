@@ -32,7 +32,7 @@ namespace SLB
             }
         }
 
-        private const int BEST_HOURS_COUNT = 3;
+        private const int BEST_HOURS_COUNT = 6;
         private static DateTime StartDate = DateTime.MinValue;
         private static List<byte> Dataset = new List<byte>();
         private static object DataLock = new object();
@@ -326,8 +326,10 @@ namespace SLB
             // update MM data
             HourStats hourStats = MMWeekData[(int)programTime.DayOfWeek * 24 + programTime.Hour];
             hourStats.Sum += lobbyStats.MMPlayers;
+            hourStats.Sum2 += lobbyStats.MMPlayers * lobbyStats.MMPlayers;
             hourStats.Count++;
-            hourStats.Average = (decimal)hourStats.Sum / hourStats.Count;
+            hourStats.Average = (double)hourStats.Sum / hourStats.Count;
+            hourStats.STD = Math.Sqrt((double)hourStats.Sum2 / hourStats.Count - hourStats.Average * hourStats.Average);
             
             if (lobbyStats.MMPlayers >= MMAllTimeBestPlayers)
             {
@@ -373,8 +375,10 @@ namespace SLB
     {
         public DayOfWeek Day;
         public int Hour;
-        public decimal Average;
+        public double Average;
+        public double STD;
         public int Sum;
+        public int Sum2;
         public int Count;
     }
 }

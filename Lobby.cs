@@ -87,9 +87,8 @@ namespace SLB
                         else if (raceProgress == 100)
                             return "Battle finishing";
                         else
-                            return "Battling";
+                            return "Battling (" + (raceProgress * 360) / 100 + "s)";
                     }
-
             }
         }
 

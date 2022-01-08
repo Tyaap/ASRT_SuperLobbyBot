@@ -6,22 +6,6 @@ namespace SLB
 {
     public static class Tools
     {
-        public static string DateTimeWithOffset(DateTime utcTime, TimeZoneInfo timeZone, string format = "dd/MM/yy HH:mm:ss")
-        {
-            DateTime convertedTime = TimeZoneInfo.ConvertTimeFromUtc(utcTime, timeZone);
-            string timeStr = convertedTime.ToString(format) + " GMT";
-            double offset = timeZone.GetUtcOffset(convertedTime).TotalHours;
-            if (offset > 0)
-            {
-                timeStr += "+" + offset;
-            }
-            else if (offset < 0)
-            {
-                timeStr += offset;
-            }
-            return timeStr;
-        }
-
         public static string HourStr(int hour)
         {
             bool am = hour < 12;
@@ -30,7 +14,26 @@ namespace SLB
             {
                 hour = 12;
             }
-            return hour + (am ? "AM" : "PM");
+            return hour + (am ? "am" : "pm");
+        }
+
+        public static DateTime NextOccurance(DateTime refTime, DayOfWeek day, int hour)
+        {
+            int dayOffset = day - refTime.DayOfWeek;
+            if (dayOffset < 0 || dayOffset == 0 && hour < refTime.Hour)
+            {
+                dayOffset += 7;
+            }
+            int hourOffset = hour - refTime.Hour;
+
+            return refTime.AddDays(dayOffset).AddHours(hourOffset);
+        }
+
+        public static long DatetimeToUnixTime(DateTime date)
+        {
+            var dateTimeOffset = new DateTimeOffset(date);
+            var unixDateTime = dateTimeOffset.ToUnixTimeSeconds();
+            return unixDateTime;
         }
 
         public static ulong ExtractBits(byte[] bytes, int bitOffset, int bitLength)
