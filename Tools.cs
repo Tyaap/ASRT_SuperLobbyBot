@@ -29,6 +29,25 @@ namespace SLB
             return refTime.AddDays(dayOffset).AddHours(hourOffset);
         }
 
+        public static DateTime NextOccurance(DateTime refTime, int sunOffsetSecs)
+        {
+            int day = sunOffsetSecs / 86400;
+            int hour = (sunOffsetSecs % 86400) / 3600;
+            int min = (sunOffsetSecs % 3600) / 60;
+            int sec = sunOffsetSecs % 60;
+
+            int dayOffset = day - (int)refTime.DayOfWeek;
+            if (dayOffset < 0 || dayOffset == 0 && hour < refTime.Hour)
+            {
+                dayOffset += 7;
+            }
+            int hourOffset = hour - refTime.Hour;
+            int minOffset = min - refTime.Minute;
+            int secOffset = sec - refTime.Second;
+
+            return refTime.AddDays(dayOffset).AddHours(hourOffset).AddMinutes(minOffset).AddSeconds(secOffset);
+        }
+
         public static long DatetimeToUnixTime(DateTime date)
         {
             var dateTimeOffset = new DateTimeOffset(date);

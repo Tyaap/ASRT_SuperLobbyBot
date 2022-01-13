@@ -22,7 +22,7 @@ namespace SLB
         private const bool SHOW_CUSTOM_GAMES = false;
         private const bool FULL_LOBBY_JOINABLE = true;
         private static readonly Color LOBBY_COLOUR = Color.Gold;
-        private const int MATCHMAKING_DATES_COUNT = 3;
+        private const int BEST_TIMES_COUNT = 4;
 
         // Discord client
         private static DiscordSocketClient discordSocketClient;
@@ -140,37 +140,37 @@ namespace SLB
             builder.WithColor(LOBBY_COLOUR);
             builder.WithTitle("Matchmaking stats");
             builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
-            
-            Dictionary<HourStats, long> nextOccurances = new Dictionary<HourStats, long>();
-            foreach(HourStats hourStats in lobbyStats.BestHours)
+
+            StatsPoint2[] bestTimes = lobbyStats.MMBestTimes;
+            Dictionary<StatsPoint2, long> nextOccurances = new Dictionary<StatsPoint2, long>();
+            for (int i = 0; i < 7; i++)
             {
-                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, hourStats.Day, hourStats.Hour));
-                nextOccurances.Add(hourStats, unixTime - unixTime % 3600);
+                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, bestTimes[i].Ref * Stats.BIN_WIDTH));
+                nextOccurances.Add(bestTimes[i], unixTime);
             }
-            Array.Sort(lobbyStats.BestHours, (x, y) => nextOccurances[x].CompareTo(nextOccurances[y]));
+            Array.Sort(bestTimes, (x, y) => nextOccurances[x].CompareTo(nextOccurances[y]));
+
             string dateList = "";
             string expList = "";
-            int n = 0;
-            foreach(HourStats hourStats in lobbyStats.BestHours)
+            for(int i = 0; i < BEST_TIMES_COUNT; i++)
             {
-                if (n >= MATCHMAKING_DATES_COUNT)
-                {
-                    break;
-                }
-                if (n > 0)
+                if (i > 0)
                 {
                     dateList += "\n";
                     expList += "\n";
                 }
 
-                dateList += string.Format("<t:{0}:F>", nextOccurances[hourStats]);
-                expList += string.Format("{0:0} to {1:0} (average {2:0.#}) ", hourStats.Average - hourStats.STD, hourStats.Average + hourStats.STD, hourStats.Average);
-                n++;
+                long unixTime = nextOccurances[bestTimes[i]];
+                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", unixTime, unixTime + Stats.INTERVAL);
+                expList += string.Format("{0:0}-{1:0} (mean {2:0.#})", 
+                    Math.Floor(bestTimes[i].Min),
+                    Math.Ceiling(bestTimes[i].Max),
+                    bestTimes[i].Avg);
             }
 
-            builder.AddField("Upcoming date", dateList, inline: true);
-            builder.AddField("Expected players", expList, inline: true);
-            builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t>  — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
+            builder.AddField("Best times to play", dateList, inline: true);
+            builder.AddField("Players (predicted)", expList, inline: true);
+            builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t> — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
             embeds.Add(builder.Build());
 
             // Lobby messages

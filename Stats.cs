@@ -6,8 +6,29 @@ using Npgsql;
 
 namespace SLB
 {
+    public struct StatsPoint
+    {
+        public int Sum;
+        public int Count;
+    }
+
+    public struct StatsPoint2
+    {
+        public int Ref;
+        public double Avg;
+        public double Min;
+        public double Max;
+    }
+
     static class Stats
     {
+        // constants
+        public const int BIN_WIDTH = 600;
+        public const int INTERVAL = 7200;
+        public const int DAY = 86400;
+        public const int WEEK = 604800;
+        public const int CALC_INTERVAL = 3600;
+
         // environment variables
         private static string ENV_CONNECTION_STR
         {
@@ -31,8 +52,6 @@ namespace SLB
                 return builder.ToString();
             }
         }
-
-        private const int BEST_HOURS_COUNT = 6;
         private static DateTime StartDate = DateTime.MinValue;
         private static List<byte> Dataset = new List<byte>();
         private static object DataLock = new object();
@@ -41,49 +60,12 @@ namespace SLB
 
 
         // data for live MM statistics
-        private static HourStats[] _MMWeekData = null;
-        private static HourStats[] MMWeekData
-        {
-            get
-            {
-                if (_MMWeekData == null)
-                {
-                    // initialise
-                    _MMWeekData = new HourStats[24 * 7];
-                    for (int i = 0; i < 7; i++)
-                    {
-                        for (int j = 0; j < 24; j++)
-                        {
-                            _MMWeekData[i * 24 + j] = new HourStats() 
-                            {
-                                Day = (DayOfWeek)i,
-                                Hour = j,
-                            };
-                        }
-                    }
-
-                }
-                return _MMWeekData;
-            }
-        }
-
-        private static HourStats[] _MMWeekDataSorted = null;
-        private static HourStats[] MMWeekDataSorted
-        {
-            get
-            {
-                if (_MMWeekDataSorted == null)
-                {
-                    // initialise with a shallow clone of MMWeekData
-                    _MMWeekDataSorted = new HourStats[24 * 7];
-                    MMWeekData.CopyTo(_MMWeekDataSorted, 0);
-                }
-                return _MMWeekDataSorted;
-            }
-        }
-
+        private static StatsPoint[] Bins = new StatsPoint[WEEK / BIN_WIDTH];
+        private static StatsPoint2[] MMBestTimes = new StatsPoint2[7]; // one for each day of the week
         private static DateTime MMAllTimeBestDate = DateTime.MinValue;
         private static int MMAllTimeBestPlayers = 0;
+        private static DateTime BestTimesCalcTime = DateTime.MinValue;
+
 
         private static void WriteNibble(byte nibble)
         {
@@ -324,13 +306,10 @@ namespace SLB
             }
 
             // update MM data
-            HourStats hourStats = MMWeekData[(int)programTime.DayOfWeek * 24 + programTime.Hour];
-            hourStats.Sum += lobbyStats.MMPlayers;
-            hourStats.Sum2 += lobbyStats.MMPlayers * lobbyStats.MMPlayers;
-            hourStats.Count++;
-            hourStats.Average = (double)hourStats.Sum / hourStats.Count;
-            hourStats.STD = Math.Sqrt((double)hourStats.Sum2 / hourStats.Count - hourStats.Average * hourStats.Average);
-            
+            int slot = SunOffsetSecs(timestamp) / BIN_WIDTH;
+            Bins[slot].Sum += lobbyStats.MMPlayers;
+            Bins[slot].Count++;
+
             if (lobbyStats.MMPlayers >= MMAllTimeBestPlayers)
             {
                 MMAllTimeBestPlayers = lobbyStats.MMPlayers;
@@ -347,12 +326,109 @@ namespace SLB
             // all time best
             lobbyStats.MMAllTimeBestPlayers = MMAllTimeBestPlayers;
             lobbyStats.MMAllTimeBestDate = MMAllTimeBestDate;
-            // best hours
-            Array.Sort(MMWeekDataSorted, (x, y) => -x.Average.CompareTo(y.Average));
-            lobbyStats.BestHours = new HourStats[BEST_HOURS_COUNT];
-            Array.Copy(MMWeekDataSorted, lobbyStats.BestHours, BEST_HOURS_COUNT);
+
+            if (BestTimesCalcTime < DateTime.Now) // periodically calculate best time stats
+            {
+                MMBestTimes = CalcBestTimes(Bins);
+                BestTimesCalcTime = DateTime.Now.AddSeconds(CALC_INTERVAL);
+            }
+            lobbyStats.MMBestTimes = MMBestTimes;
 
             return lobbyStats;
+        }
+
+        public static int SunOffsetSecs(DateTime dateTime)
+        {
+            return 
+                dateTime.Second +
+                dateTime.Minute * 60 + 
+                dateTime.Hour * 3600 +
+                (int)dateTime.DayOfWeek * DAY;
+        }
+
+        public static StatsPoint2[] CalcBestTimes(StatsPoint[] bins)
+        {
+            // best times, one per day of the week
+            StatsPoint2[] bestTimes = new StatsPoint2[7];
+            int nBins = bins.Length;
+
+            int binInterval = INTERVAL / BIN_WIDTH;
+            int sum = 0;
+            int count = 0;
+            for (int i = 0; i < binInterval; i++)
+            {
+                sum += bins[i].Sum;
+                count += bins[i].Count;
+            }
+
+            for (int i = 0; i < nBins; i++)
+            {
+                if (i > 0)
+                {
+                    int subIndex = i - 1;
+                    int addIndex = i + binInterval - 1;
+                    if (addIndex >= nBins)
+                    {
+                        addIndex -= nBins;
+                    }
+                    sum -= bins[subIndex].Sum;
+                    sum += bins[addIndex].Sum;
+                    count -= bins[subIndex].Count;
+                    count += bins[addIndex].Count;
+                }
+                double avg = (double)sum / count;
+
+                int btIndex = (i * BIN_WIDTH) / DAY;
+                if (bestTimes[btIndex].Avg < avg)
+                {
+                    if (btIndex > 0)
+                    {
+                        if (btIndex != 6)
+                        {
+                            if (bestTimes[btIndex - 1].Ref + binInterval > i)
+                            {
+                                continue; // overlaps with previous day best, skip
+                            }
+                        }
+                        else
+                        {
+                            if (bestTimes[0].Ref < i + binInterval - nBins)
+                            {
+                                continue; // overlaps with next day best, skip
+                            }
+                        }
+                    }
+
+                    bestTimes[btIndex].Avg = avg;
+                    bestTimes[btIndex].Ref = i;
+                }
+            }
+
+            for (int i = 0; i < 7; i++)
+            {
+                int start = bestTimes[i].Ref;
+                bestTimes[i].Min = (double)bins[start].Sum / bins[start].Count;
+                bestTimes[i].Max = bestTimes[i].Min;
+                for (int j = 1; j < binInterval; j++)
+                {
+                    int slot = start + j;
+                    if (slot > nBins)
+                    {
+                        slot -= nBins;
+                    }
+                    double avg = (double)bins[slot].Sum / bins[slot].Count;
+                    if (bestTimes[i].Max < avg)
+                    {
+                        bestTimes[i].Max = avg;
+                    }
+                    if (bestTimes[i].Min > avg)
+                    {
+                        bestTimes[i].Min = avg;
+                    } 
+                }
+            }
+
+            return bestTimes;
         }
     }
 
@@ -366,19 +442,8 @@ namespace SLB
 
         // MM stats
         public DateTime StartDate;
-        public HourStats[] BestHours;
+        public StatsPoint2[] MMBestTimes;
         public DateTime MMAllTimeBestDate;
         public int MMAllTimeBestPlayers;
-    }
-
-    public class HourStats
-    {
-        public DayOfWeek Day;
-        public int Hour;
-        public double Average;
-        public double STD;
-        public int Sum;
-        public int Sum2;
-        public int Count;
     }
 }
