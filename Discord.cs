@@ -145,7 +145,7 @@ namespace SLB
             Dictionary<StatsPoint2, long> nextOccurances = new Dictionary<StatsPoint2, long>();
             for (int i = 0; i < 7; i++)
             {
-                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, bestTimes[i].Ref * Stats.BIN_WIDTH));
+                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, bestTimes[i].Ref * Stats.BIN_WIDTH + Stats.INTERVAL));
                 nextOccurances.Add(bestTimes[i], unixTime);
             }
             Array.Sort(bestTimes, (x, y) => nextOccurances[x].CompareTo(nextOccurances[y]));
@@ -161,7 +161,7 @@ namespace SLB
                 }
 
                 long unixTime = nextOccurances[bestTimes[i]];
-                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", unixTime, unixTime + Stats.INTERVAL);
+                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", unixTime - Stats.INTERVAL, unixTime);
                 expList += string.Format("{0:0}-{1:0} (mean {2:0.#})", 
                     Math.Floor(bestTimes[i].Min),
                     Math.Ceiling(bestTimes[i].Max),

@@ -329,7 +329,17 @@ namespace SLB
 
             if (BestTimesCalcTime < DateTime.Now) // periodically calculate best time stats
             {
+                Console.WriteLine("Stats.ProcessEntry() Calculating MM best times...");
                 MMBestTimes = CalcBestTimes(Bins);
+                Console.WriteLine("Time (GMT)\tPlayers (estimate)");
+                foreach (StatsPoint2 time in MMBestTimes)
+                {
+                    Console.WriteLine("{0} - {1}\t{2:0}-{3:0} (mean {4:0.##})",
+                        ReadableTime(time.Ref * BIN_WIDTH, "{0} {1:00}:{2:00}"),
+                        ReadableTime(time.Ref * BIN_WIDTH + INTERVAL, "{1:00}:{2:00}"), 
+                        Math.Floor(time.Min), Math.Ceiling(time.Max), time.Avg);
+                }
+
                 BestTimesCalcTime = DateTime.Now.AddSeconds(CALC_INTERVAL);
             }
             lobbyStats.MMBestTimes = MMBestTimes;
@@ -344,6 +354,16 @@ namespace SLB
                 dateTime.Minute * 60 + 
                 dateTime.Hour * 3600 +
                 (int)dateTime.DayOfWeek * DAY;
+        }
+
+        public static string ReadableTime(int sunOffsetSecs, string format = "{0} {1:00}:{2:00}:{3:00}")
+        {
+            sunOffsetSecs %= 604800;
+            DayOfWeek day = (DayOfWeek)(sunOffsetSecs / 86400);
+            int hour = (sunOffsetSecs % 86400) / 3600;
+            int minute = (sunOffsetSecs % 3600) / 60;
+            int second = sunOffsetSecs % 60;
+            return string.Format(format, day, hour, minute, second);
         }
 
         public static StatsPoint2[] CalcBestTimes(StatsPoint[] bins)

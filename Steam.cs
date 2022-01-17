@@ -321,7 +321,7 @@ namespace SLB
                 }
                 else
                 {
-                    Console.WriteLine("ProcessLobbyList() Appeared: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
+                    // Console.WriteLine("ProcessLobbyList() Appeared: {0} ({1})", lobbyInfo.name, lobbyInfo.id);
                 }
 
                 // Add the new / updated lobby info to the list end
@@ -345,7 +345,7 @@ namespace SLB
                     }
                     else
                     {
-                        Console.WriteLine("ProcessLobbyList() Disappeared: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
+                        //Console.WriteLine("ProcessLobbyList() Disappeared: {0} ({1})", lobbyInfos[i].name, lobbyInfos[i].id);
                         lobbyInfos.RemoveAt(i);
                     }
                 }
