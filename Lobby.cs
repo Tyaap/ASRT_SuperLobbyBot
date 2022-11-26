@@ -141,64 +141,46 @@ namespace SLB
 
         public static (int, bool) GetMapId(int lobbyType, int matchMode)
         {
-            bool mirror = false;
-            int mapId = -1;
-
             switch (lobbyType)
             {
                 case 0:
                     if (matchMode < 20)
-                        mapId = matchMode;
+                    {
+                        return (matchMode, false);
+                    }
                     else
                     {
-                        mapId = matchMode - 20;
-                        mirror = true;
+                        return (matchMode - 20, true);
                     }
-                    break;
-
                 case 1:
                     if (matchMode > 4)
                         matchMode -= 5;
-
-                    mapId = matchMode;
-                    break;
-
+                    return (matchMode, false);
                 case 2:
                     if (matchMode < 60 || matchMode > 69)
                     {
                         if (matchMode > 69)
                             matchMode -= 10;
-
-                        mapId = matchMode % 20;
-
-                        if (matchMode > 69)
-                            mirror = true;
+                        return (matchMode % 20, matchMode > 69);
                     }
                     else
                     {
-                        mapId = matchMode % 5;
+                        return (matchMode % 5, false);
                     }
-                    break;
-
                 case 3:
                     if (matchMode < 126)
                     {
                         matchMode %= 42;
-                        mapId = matchMode % 21;
-                        if (matchMode > 20)
-                            mirror = true;
+                        return (matchMode % 21, matchMode > 20);
                     }
                     else
                     {
                         matchMode -= 126;
-                        mapId = matchMode % 5;
+                        return (matchMode % 5, false);
                     }
-                    break;
                 default:
                     return (-1, false);
             }
-
-            return (mapId, mirror);
         }
 
         public static string GetEventName(int eventId)

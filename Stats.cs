@@ -92,12 +92,12 @@ namespace SLB
             Console.WriteLine("Stats.SaveDataset() Entries:{0} Bytes:{1}", Entries, Dataset.Count);
 
             byte[] compressedData;
-            using (MemoryStream ms = new MemoryStream())
+            using (var ms = new MemoryStream())
             {
                 lock (DataLock)
                 {
                     // compress data
-                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                    using (var ds = new DeflateStream(ms, CompressionMode.Compress))
                     {
                         ds.Write(Dataset.ToArray(), 0, Dataset.Count);
                     }
@@ -116,8 +116,8 @@ namespace SLB
             try
             {
                 // save to database
-                using (NpgsqlConnection connection = new NpgsqlConnection(ENV_CONNECTION_STR))
-                using (NpgsqlCommand command = connection.CreateCommand())
+                using (var connection = new NpgsqlConnection(ENV_CONNECTION_STR))
+                using (var command = connection.CreateCommand())
                 {
                     connection.Open();
                     command.CommandText = 
@@ -141,26 +141,26 @@ namespace SLB
             int totalDatasets = 0;
             try
             {
-                using (NpgsqlConnection connection = new NpgsqlConnection(ENV_CONNECTION_STR))
-                using (NpgsqlCommand command = connection.CreateCommand())
+                using (var connection = new NpgsqlConnection(ENV_CONNECTION_STR))
+                using (var command = connection.CreateCommand())
                 {
                     // restore from database
                     connection.Open();
                     command.CommandText = "SELECT datasets FROM stats_data";
-                    using (NpgsqlDataReader reader = command.ExecuteReader())
+                    using (var reader = command.ExecuteReader())
                     {
                         while (reader.Read())
                         {
                             totalDatasets++;
-                            using (Stream s = reader.GetStream(reader.GetOrdinal("datasets")))
+                            using (var s = reader.GetStream(reader.GetOrdinal("datasets")))
                             {
-                                int entries = LoadDataSet(s, out DateTime startDate, out DateTime endDate);
-                                if (entries == 0)
+                                int numEntries = LoadDataSet(s, out var startDate, out var endDate);
+                                if (numEntries == 0)
                                 {
                                     continue;
                                 }
-                                totalEntries += entries;
-                                Console.WriteLine("Dataset number:{0} startDate:{1} endDate:{2} entries:{3}", totalDatasets, startDate, endDate, entries);
+                                totalEntries += numEntries;
+                                Console.WriteLine("Dataset number:{0} startDate:{1} endDate:{2} numEntries:{3}", totalDatasets, startDate, endDate, numEntries);
                             }      
                         }
                     }
@@ -175,18 +175,18 @@ namespace SLB
 
         private static int LoadDataSet(Stream s, out DateTime startDate, out DateTime endDate)
         {
-            int entries = 0;
+            int numEntries = 0;
             startDate = DateTime.MinValue;
             endDate = DateTime.MinValue;
             try
             {
-                using (DeflateStream ds = new DeflateStream(s, CompressionMode.Decompress))
-                using (BinaryReader br = new BinaryReader(ds))
+                using (var ds = new DeflateStream(s, CompressionMode.Decompress))
+                using (var br = new BinaryReader(ds))
                 {                
-                    while (ReadEntryData(br, out DateTime timestamp, out List<LobbyInfo> lobbyInfos))
+                    while (ReadEntryData(br, out var timestamp, out var lobbyInfos))
                     {
                         ProcessEntry(timestamp, lobbyInfos, false);
-                        entries++;
+                        numEntries++;
                         if (startDate == DateTime.MinValue)
                         {
                             startDate = timestamp;
@@ -199,7 +199,7 @@ namespace SLB
             {
                 Console.WriteLine("Stats.LoadDataSet() Exception!\n" + ex);
             }
-            return entries;
+            return numEntries;
         }
 
         // read entry from a decompressed dataset stream
@@ -212,7 +212,7 @@ namespace SLB
                 timestamp = DateTime.FromBinary(br.ReadInt64());
                 
                 // lobby info
-                lobbyInfos = new List<LobbyInfo>();
+                lobbyInfos = new();
                 byte b = 0;
                 byte nibble = 0;
                 int nibbles = 0;
@@ -275,61 +275,66 @@ namespace SLB
         }
 
         // process new entry and return new lobby stats
-        // optionally return mm stats
-        public static LobbyStats ProcessEntry(DateTime timestamp, List<LobbyInfo> lobbyInfos, bool mmStats = true)
+        // optionally return lobby stats
+        public static LobbyStats ProcessEntry(DateTime timestamp, List<LobbyInfo> lobbyInfos, bool returnStats = true)
         {
             // program time - used for MM stats
-            DateTime programTime = TimeZoneInfo.ConvertTimeFromUtc(timestamp, Program.TIMEZONE); 
-
-            LobbyStats lobbyStats = new LobbyStats();
+            var programTime = TimeZoneInfo.ConvertTimeFromUtc(timestamp, Program.TIMEZONE); 
 
             // start date
             if (StartDate == DateTime.MinValue)
             {
                 StartDate = timestamp;
             }
-            lobbyStats.StartDate = StartDate;
 
             // lobby counts
+            int mmPlayers = 0;
+            int mmLobbies = 0;
+            int cgPlayers = 0;
+            int cgLobbies = 0;
             foreach (LobbyInfo lobbyInfo in lobbyInfos)
             {
                 if (lobbyInfo.type == 3)
                 {
-                    lobbyStats.CustomPlayers += lobbyInfo.playerCount;
-                    lobbyStats.CustomLobbies++;
+                    cgPlayers += lobbyInfo.playerCount;
+                    cgLobbies++;
                 }
                 else
                 {
-                    lobbyStats.MMPlayers += lobbyInfo.playerCount;
-                    lobbyStats.MMLobbies++;
+                    mmPlayers += lobbyInfo.playerCount;
+                    mmLobbies++;
                 }
             }
 
             // update MM data
-            int slot = SunOffsetSecs(timestamp) / BIN_WIDTH;
-            Bins[slot].Sum += lobbyStats.MMPlayers;
+            int slot = Tools.SunOffsetSecs(timestamp) / BIN_WIDTH;
+            Bins[slot].Sum += mmPlayers;
             Bins[slot].Count++;
 
-            if (lobbyStats.MMPlayers >= MMAllTimeBestPlayers)
+            if (mmPlayers >= MMAllTimeBestPlayers)
             {
-                MMAllTimeBestPlayers = lobbyStats.MMPlayers;
+                MMAllTimeBestPlayers = mmPlayers;
                 MMAllTimeBestDate = timestamp;
             }
 
-            if (!mmStats)
+            if (!returnStats)
             {
-                // skip MM stats
-                return lobbyStats;
+                return null;
             }
 
-            // MM stats
-            // all time best
-            lobbyStats.MMAllTimeBestPlayers = MMAllTimeBestPlayers;
-            lobbyStats.MMAllTimeBestDate = MMAllTimeBestDate;
+            var lobbyStats = GetMMStats();
+            lobbyStats.MMPlayers = mmPlayers;
+            lobbyStats.MMLobbies = mmLobbies;
+            lobbyStats.CGPlayers = cgPlayers;
+            lobbyStats.CGLobbies = cgLobbies;
+            return lobbyStats;
+        }
 
-            if (BestTimesCalcTime < DateTime.Now) // periodically calculate best time stats
+        public static LobbyStats GetMMStats()
+        {
+            if (BestTimesCalcTime < DateTime.Now) // periodically recalculate best time stats
             {
-                Console.WriteLine("Stats.ProcessEntry() Calculating MM best times...");
+                Console.WriteLine("Stats.GetMMStats() Calculating MM best times...");
                 MMBestTimes = CalcBestTimes(Bins);
                 Console.WriteLine("Time (GMT)\tPlayers (estimate)");
                 foreach (StatsPoint2 time in MMBestTimes)
@@ -342,24 +347,20 @@ namespace SLB
 
                 BestTimesCalcTime = DateTime.Now.AddSeconds(CALC_INTERVAL);
             }
-            lobbyStats.MMBestTimes = MMBestTimes;
 
-            return lobbyStats;
-        }
-
-        public static int SunOffsetSecs(DateTime dateTime)
-        {
-            return 
-                dateTime.Second +
-                dateTime.Minute * 60 + 
-                dateTime.Hour * 3600 +
-                (int)dateTime.DayOfWeek * DAY;
+            return new LobbyStats()
+            {
+                StartDate = StartDate,
+                MMAllTimeBestPlayers = MMAllTimeBestPlayers,
+                MMAllTimeBestDate = MMAllTimeBestDate,
+                MMBestTimes = MMBestTimes,
+            };
         }
 
         public static string ReadableTime(int sunOffsetSecs, string format = "{0} {1:00}:{2:00}:{3:00}")
         {
             sunOffsetSecs %= 604800;
-            DayOfWeek day = (DayOfWeek)(sunOffsetSecs / 86400);
+            var day = (DayOfWeek)(sunOffsetSecs / 86400);
             int hour = (sunOffsetSecs % 86400) / 3600;
             int minute = (sunOffsetSecs % 3600) / 60;
             int second = sunOffsetSecs % 60;
@@ -369,7 +370,7 @@ namespace SLB
         public static StatsPoint2[] CalcBestTimes(StatsPoint[] bins)
         {
             // best times, one per day of the week
-            StatsPoint2[] bestTimes = new StatsPoint2[7];
+            var bestTimes = new StatsPoint2[7];
             int nBins = bins.Length;
 
             int binInterval = INTERVAL / BIN_WIDTH;
@@ -457,8 +458,8 @@ namespace SLB
         // lobby counts
         public int MMLobbies;
         public int MMPlayers;
-        public int CustomLobbies;
-        public int CustomPlayers;
+        public int CGLobbies;
+        public int CGPlayers;
 
         // MM stats
         public DateTime StartDate;

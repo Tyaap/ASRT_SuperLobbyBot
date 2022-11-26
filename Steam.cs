@@ -34,14 +34,14 @@ namespace SLB
         // info for status message
         private static int playerCount;
         private static LobbyStats lobbyStats;
-        private static List<LobbyInfo> lobbyInfos;
+        private static List<LobbyInfo> lobbyInfos = new List<LobbyInfo>();
 
         // timer for updating messages
         private static Timer messageTimer;
         private static object messageTimerLock = new object();
         private static int errorCount = 0;
 
-
+        private static DateTime loginTimeout = DateTime.MinValue;
 
         public static void Start()
         {
@@ -69,10 +69,10 @@ namespace SLB
             Login();
 
             // Steam callback timer
-            callbackTimer = new Timer(CallbackTimerTick, null, CALLBACK_WAIT, -1);
+            callbackTimer = new(CallbackTimerTick, null, CALLBACK_WAIT, -1);
 
             // message update timer
-            messageTimer = new Timer(MessageTimerTick, null, ENV_MESSAGE_WAIT, -1);
+            messageTimer = new(MessageTimerTick, null, ENV_MESSAGE_WAIT, -1);
         }
 
         public static void Stop()
@@ -176,31 +176,31 @@ namespace SLB
                     Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "working! :)" : "not working! :(");
 
                     DateTime timestamp = DateTime.UtcNow;
-                    if (loggedIn && RefreshLobbyInfo().GetAwaiter().GetResult())
+                    if (RefreshLobbyInfo().GetAwaiter().GetResult())
                     {
                         // record data
                         Stats.WriteEntryData(timestamp, lobbyInfos);
 
-                        // get lobby stats
+                        // get lobby and MM stats
                         lobbyStats = Stats.ProcessEntry(timestamp, lobbyInfos);
 
                         errorCount = 0;
                     }
                     else
                     {
-                        playerCount = -1; // indicates lobby info is unavailable
+                        lobbyStats = Stats.GetMMStats(); // get MM stats only
                         if (loggedIn)
                         {
                             errorCount++;
                             if (errorCount == MAX_ERRORS)
                             {
-                                Console.WriteLine("MessageTimerTick() Failed to refresh {0} times.", MAX_ERRORS);
-                                Console.WriteLine("steamClient.Disconnect()");
+                                Console.WriteLine("MessageTimerTick() Failed to refresh {0} times, forcing reconnect", MAX_ERRORS);
                                 steamClient.Disconnect();
                                 errorCount = 0;
                             }
                         }
-                        else
+                        // if not rate limited, try log in
+                        else if (DateTime.Now > loginTimeout)
                         {
                             Login();
                         }
@@ -221,6 +221,14 @@ namespace SLB
 
         private static async Task<bool> RefreshLobbyInfo()
         {
+            // check if logged in
+            if (!loggedIn)
+            {
+                playerCount = -1;
+                lobbyInfos.Clear();
+                return false;
+            }
+
             // get number of current players
             try
             {
@@ -238,6 +246,8 @@ namespace SLB
             catch (TaskCanceledException)
             {
                 Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get number of current players (Timeout)");
+                playerCount = -1;
+                lobbyInfos.Clear();
                 return false;
             }
 
@@ -265,6 +275,8 @@ namespace SLB
             catch (TaskCanceledException)
             {
                 Console.WriteLine("Steam.RefreshLobbyInfo() Failed to get lobby list (Timeout)");
+                playerCount = -1;
+                lobbyInfos.Clear();
                 return false;
             }
             return true;
@@ -287,7 +299,16 @@ namespace SLB
         private static void OnLoggedOn(SteamUser.LoggedOnCallback callback)
         {
             Console.WriteLine("Steam.OnLoggedOn() Result: {0} / {1}", callback.Result, callback.ExtendedResult);
-            loggedIn = callback.Result == EResult.OK;
+            if (callback.Result == EResult.OK)
+            {
+                loggedIn = true;
+            }
+            else
+            {
+                Console.WriteLine("Steam.OnLoggedOn() Retry in 5 minutes");
+                loggedIn = false;
+                loginTimeout = DateTime.Now.AddMinutes(5);
+            }
         }
 
         private static void OnLoggedOff(SteamUser.LoggedOffCallback callback)
@@ -298,11 +319,6 @@ namespace SLB
 
         private static async Task ProcessLobbyList(List<SteamMatchmaking.Lobby> lobbies)
         {
-            if (lobbyInfos == null)
-            {
-                lobbyInfos = new List<LobbyInfo>();
-            }
-
             int lobbyCount = 0;
             foreach (var lobby in lobbies)
             {
@@ -370,7 +386,7 @@ namespace SLB
         private static LobbyInfo ProcessLobby(SteamMatchmaking.Lobby lobby)
         {
             // New empty lobby info
-            LobbyInfo lobbyInfo = new LobbyInfo()
+            var lobbyInfo = new LobbyInfo()
             {
                 name = "Lobby",
                 id = lobby.SteamID.ConvertToUInt64(),
@@ -395,7 +411,7 @@ namespace SLB
             // Finer details
             if (lobby.Metadata.TryGetValue("lobbydata", out value))
             {
-                LobbyDetails details = ProcessLobbyDetails(value);
+                var details = ProcessLobbyDetails(value);
                 lobbyInfo.matchMode = details.matchMode;
                 lobbyInfo.raceProgress = details.progressPercentage;
                 lobbyInfo.countdown = details.countdownTime;
@@ -416,7 +432,7 @@ namespace SLB
         private static LobbyDetails ProcessLobbyDetails(string data)
         {
             byte[] bytes = Convert.FromBase64String(data);
-            LobbyDetails lobbyData = new LobbyDetails() 
+            var lobbyData = new LobbyDetails() 
             {
                 unknown1 = ExtractBits(bytes, 0, 1) == 1,
                 usingScore = ExtractBits(bytes, 1, 1) == 1,

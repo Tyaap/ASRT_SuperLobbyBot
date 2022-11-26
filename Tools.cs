@@ -17,41 +17,26 @@ namespace SLB
             return hour + (am ? "am" : "pm");
         }
 
-        public static DateTime NextOccurance(DateTime refTime, DayOfWeek day, int hour)
-        {
-            int dayOffset = day - refTime.DayOfWeek;
-            if (dayOffset < 0 || dayOffset == 0 && hour < refTime.Hour)
-            {
-                dayOffset += 7;
-            }
-            int hourOffset = hour - refTime.Hour;
 
-            return refTime.AddDays(dayOffset).AddHours(hourOffset);
+        public static int SunOffsetSecs(DateTime dateTime)
+        {
+            return 
+                dateTime.Second +
+                dateTime.Minute * 60 + 
+                dateTime.Hour * 3600 +
+                (int)dateTime.DayOfWeek * 86400;
         }
 
         public static DateTime NextOccurance(DateTime refTime, int sunOffsetSecs)
         {
-            int day = sunOffsetSecs / 86400;
-            int hour = (sunOffsetSecs % 86400) / 3600;
-            int min = (sunOffsetSecs % 3600) / 60;
-            int sec = sunOffsetSecs % 60;
-
-            int dayOffset = day - (int)refTime.DayOfWeek;
-            if (dayOffset < 0 || dayOffset == 0 && hour < refTime.Hour)
-            {
-                dayOffset += 7;
-            }
-            int hourOffset = hour - refTime.Hour;
-            int minOffset = min - refTime.Minute;
-            int secOffset = sec - refTime.Second;
-
-            return refTime.AddDays(dayOffset).AddHours(hourOffset).AddMinutes(minOffset).AddSeconds(secOffset);
+            int sunOffsetDiff = sunOffsetSecs - SunOffsetSecs(refTime);
+            return (sunOffsetDiff > 0 ? refTime : refTime.AddDays(7)).AddSeconds(sunOffsetDiff);
         }
 
         public static long DatetimeToUnixTime(DateTime date)
         {
             var dateTimeOffset = new DateTimeOffset(date);
-            var unixDateTime = dateTimeOffset.ToUnixTimeSeconds();
+            long unixDateTime = dateTimeOffset.ToUnixTimeSeconds();
             return unixDateTime;
         }
 
@@ -64,7 +49,7 @@ namespace SLB
             int byteLength =  byteEnd - byteOffset;
 
             ulong data;
-            List<byte> tmp = new List<byte>(bytes[byteOffset..byteEnd]);
+            var tmp = new List<byte>(bytes[byteOffset..byteEnd]);
             tmp.Reverse();
             if (byteLength <= 1)
             {
@@ -101,7 +86,7 @@ namespace SLB
 
         public static string MemoryInfo()
         {
-            Process process = Process.GetCurrentProcess();
+            var process = Process.GetCurrentProcess();
             return "Memory Usage\n" + 
                 "Current: " + PrettifyByte(process.WorkingSet64) + "\n" +
                 "Maximum: " + PrettifyByte(process.PeakWorkingSet64);

@@ -42,7 +42,7 @@ namespace SLB
         public static async Task Start()
         {
             Console.WriteLine("Discord.Start()");
-            discordSocketClient = new DiscordSocketClient(new DiscordSocketConfig { ExclusiveBulkDelete = true });
+            discordSocketClient = new DiscordSocketClient();
             commandService = new CommandService();
             serviceProvider = new ServiceCollection()
                 .AddSingleton(discordSocketClient)
@@ -73,7 +73,7 @@ namespace SLB
             // check if any lobbies need hiding
             if (!SHOW_CUSTOM_GAMES)
             {
-                HashSet<ulong> visibleCustomGamesNew = new HashSet<ulong>();
+                var visibleCustomGamesNew = new HashSet<ulong>();
                 foreach(var lobbyInfo in lobbyInfos)
                 {
                     if (lobbyInfo.type != 3)
@@ -103,8 +103,8 @@ namespace SLB
             }
 
             // Message storage
-            List<string> messages = new List<string>();
-            List<Embed> embeds = new List<Embed>();
+            var messages = new List<string>();
+            var embeds = new List<Embed>();
 
             // Overview message
             if (playerCount >= 0)
@@ -112,7 +112,7 @@ namespace SLB
                 string statusOverview = string.Format("**__S&ASRT Lobby Info — <t:{0}:d> <t:{0}:T>__**", DatetimeToUnixTime(timestamp));
                 statusOverview += string.Format("\n\n**{0}** people are playing S&ASRT.", playerCount);
                 statusOverview += "\n" + LobbyCountMessage(lobbyStats.MMLobbies, lobbyStats.MMPlayers, "matchmaking", "lobby", "lobbies");
-                statusOverview += "\n" + LobbyCountMessage(lobbyStats.CustomLobbies, lobbyStats.CustomPlayers, "custom", "game", "games");
+                statusOverview += "\n" + LobbyCountMessage(lobbyStats.CGLobbies, lobbyStats.CGPlayers, "custom", "game", "games");
                 statusOverview += "\n";
                 foreach (var lobbyInfo in lobbyInfos)
                 {
@@ -127,10 +127,10 @@ namespace SLB
             }
             else
             {
-                string message = "**Lobby info unavailable!**";
+                string message = "**Lobby info unavailable!\n**";
                 if (DateTime.Now.DayOfWeek == DayOfWeek.Tuesday || DateTime.Now.DayOfWeek == DayOfWeek.Wednesday)
                 {
-                    message += "\n**Steam might be down for scheduled maintenance.**";
+                    message += "**Steam might be down for scheduled maintenance.**";
                 }
                 messages.Add(message);
             }
@@ -141,8 +141,8 @@ namespace SLB
             builder.WithTitle("Matchmaking stats");
             builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
 
-            StatsPoint2[] bestTimes = lobbyStats.MMBestTimes;
-            Dictionary<StatsPoint2, long> nextOccurances = new Dictionary<StatsPoint2, long>();
+            var bestTimes = lobbyStats.MMBestTimes;
+            var nextOccurances = new Dictionary<StatsPoint2, long>();
             for (int i = 0; i < 7; i++)
             {
                 long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, bestTimes[i].Ref * Stats.BIN_WIDTH + Stats.INTERVAL));
@@ -267,7 +267,7 @@ namespace SLB
                             }
                         }
 
-                        List<IUserMessage> statusMessages = new List<IUserMessage>();
+                        var statusMessages = new List<IUserMessage>();
                         // reuse old messages if channel exists
                         if (statusChannel != null)
                         {
@@ -374,19 +374,19 @@ namespace SLB
         }
 
         private static void UpdateStatusError(HttpException ex, ulong guildId = 0)
-        {
+        {      
             switch (ex.DiscordCode)
             {
-                case 10003:
-                    Console.WriteLine("Channel cound not be found!");
+                case DiscordErrorCode.UnknownChannel:
+                    Console.WriteLine("Discord.UpdateStatusError() Channel not found!");
                     currentStatusMessages.Remove(guildId);
                     return;
-                case 50001:
-                    Console.WriteLine("Bot does not have permission!");
+                case DiscordErrorCode.MissingPermissions:
+                    Console.WriteLine("Discord.UpdateStatusError() Bot does not have permission!");
                     currentStatusMessages.Remove(guildId);
                     return;
                 default:
-                    Console.WriteLine(ex);
+                    Console.WriteLine("Discord.UpdateStatusError() " + ex);
                     return;
             }
         }
