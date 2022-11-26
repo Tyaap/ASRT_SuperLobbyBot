@@ -371,6 +371,11 @@ namespace SLB
         {
             // best times, one per day of the week
             var bestTimes = new StatsPoint2[7];
+            for (int i = 0; i < 7; i++)
+            {
+                bestTimes[i].Ref = -1;
+            }
+
             int nBins = bins.Length;
 
             int binInterval = INTERVAL / BIN_WIDTH;
@@ -406,20 +411,19 @@ namespace SLB
                     {
                         if (btIndex != 6)
                         {
-                            if (bestTimes[btIndex - 1].Ref + binInterval > i)
+                            if (bestTimes[btIndex - 1].Ref != -1 & bestTimes[btIndex - 1].Ref + binInterval > i)
                             {
                                 continue; // overlaps with previous day best, skip
                             }
                         }
                         else
                         {
-                            if (bestTimes[0].Ref < i + binInterval - nBins)
+                            if (bestTimes[0].Ref != -1 & bestTimes[0].Ref < i + binInterval - nBins)
                             {
                                 continue; // overlaps with next day best, skip
                             }
                         }
                     }
-
                     bestTimes[btIndex].Avg = avg;
                     bestTimes[btIndex].Ref = i;
                 }
@@ -428,6 +432,11 @@ namespace SLB
             for (int i = 0; i < 7; i++)
             {
                 int start = bestTimes[i].Ref;
+                if (i == -1)
+                {
+                    continue; // best time undefined
+                } 
+
                 bestTimes[i].Min = (double)bins[start].Sum / bins[start].Count;
                 bestTimes[i].Max = bestTimes[i].Min;
                 for (int j = 1; j < binInterval; j++)

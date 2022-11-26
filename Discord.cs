@@ -142,30 +142,35 @@ namespace SLB
             builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
 
             var bestTimes = lobbyStats.MMBestTimes;
-            var nextOccurances = new Dictionary<StatsPoint2, long>();
-            for (int i = 0; i < 7; i++)
+            var nextOccurances = new List<(long, StatsPoint2)>();
+
+            foreach (var bestTime in bestTimes)
             {
-                long unixTime = DatetimeToUnixTime(NextOccurance(timestamp, bestTimes[i].Ref * Stats.BIN_WIDTH + Stats.INTERVAL));
-                nextOccurances.Add(bestTimes[i], unixTime);
+                if (bestTime.Ref == -1)
+                {
+                    continue;
+                }
+                nextOccurances.Add((
+                    DatetimeToUnixTime(NextOccurance(timestamp, bestTime.Ref * Stats.BIN_WIDTH + Stats.INTERVAL)), bestTime));
             }
-            Array.Sort(bestTimes, (x, y) => nextOccurances[x].CompareTo(nextOccurances[y]));
+            nextOccurances.Sort((x, y) => x.Item1.CompareTo(y.Item1));
 
             string dateList = "";
             string expList = "";
-            for(int i = 0; i < BEST_TIMES_COUNT; i++)
+
+            for(int i = 0; i < BEST_TIMES_COUNT & i < nextOccurances.Count; i++)
             {
                 if (i > 0)
                 {
                     dateList += "\n";
                     expList += "\n";
                 }
-
-                long unixTime = nextOccurances[bestTimes[i]];
-                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", unixTime - Stats.INTERVAL, unixTime);
+                var nextOccurance = nextOccurances[i];
+                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", nextOccurance.Item1 - Stats.INTERVAL, nextOccurance.Item1);
                 expList += string.Format("{0:0}-{1:0} (mean {2:0.#})", 
-                    Math.Floor(bestTimes[i].Min),
-                    Math.Ceiling(bestTimes[i].Max),
-                    bestTimes[i].Avg);
+                    Math.Floor(nextOccurance.Item2.Min),
+                    Math.Ceiling(nextOccurance.Item2.Max),
+                    nextOccurance.Item2.Avg);
             }
 
             builder.AddField("Best times to play", dateList, inline: true);

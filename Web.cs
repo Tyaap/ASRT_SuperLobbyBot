@@ -36,7 +36,7 @@ namespace SLB
 
             client = new HttpClient();
 
-            pingTimer = new Timer(Ping, null, PING_INTERVAL, -1);
+            //pingTimer = new Timer(Ping, null, PING_INTERVAL, -1);
         }
 
         public static async Task WaitForShutdown()
