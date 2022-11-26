@@ -14,7 +14,7 @@ namespace SLB
         private static int ENV_PORT => int.Parse(Environment.GetEnvironmentVariable("PORT"));
 
         // constants
-        private const string HOST_ADDRESS = "https://super-lobby-bot.herokuapp.com/";
+        private const string HOST_ADDRESS = "https://super-lobby-bot.onrender.com/";
         private const int PING_INTERVAL = 60000;
 
         // web components
@@ -36,7 +36,7 @@ namespace SLB
 
             client = new HttpClient();
 
-            //pingTimer = new Timer(Ping, null, PING_INTERVAL, -1);
+            pingTimer = new Timer(Ping, null, PING_INTERVAL, -1);
         }
 
         public static async Task WaitForShutdown()
