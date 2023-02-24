@@ -432,7 +432,7 @@ namespace SLB
             for (int i = 0; i < 7; i++)
             {
                 int start = bestTimes[i].Ref;
-                if (i == -1)
+                if (start == -1)
                 {
                     continue; // best time undefined
                 } 

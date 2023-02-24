@@ -96,9 +96,6 @@ namespace SLB
                 // reset timer
                 pingTimer.Change(PING_INTERVAL, -1);
             }
-
         }
-
-
     }
 }
