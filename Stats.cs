@@ -435,10 +435,10 @@ namespace SLB
                 if (start == -1)
                 {
                     continue; // best time undefined
-                } 
+                }
 
-                bestTimes[i].Min = (double)bins[start].Sum / bins[start].Count;
-                bestTimes[i].Max = bestTimes[i].Min;
+                bestTimes[i].Min = bestTimes[i].Avg;
+                bestTimes[i].Max = bestTimes[i].Avg;
                 for (int j = 1; j < binInterval; j++)
                 {
                     int slot = start + j;
