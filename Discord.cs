@@ -215,7 +215,13 @@ namespace SLB
 
                     // fields
                     builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
-                    builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true);
+
+                    string lobbyType = LobbyTools.GetLobbyType(lobbyInfo.type);
+                    if (lobbyType != null)
+                    {
+                        builder.AddField("Type", lobbyType, true);
+                    }
+                    
                     if (lobbyInfo.state >= 0)
                     {
                         int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);

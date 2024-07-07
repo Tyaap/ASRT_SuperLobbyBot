@@ -46,7 +46,6 @@ namespace SLB
                     Password = userInfo[1],
                     Database = databaseUri.LocalPath.TrimStart('/'),
                     SslMode = SslMode.Require,
-                    TrustServerCertificate = true,
                 };
 
                 return builder.ToString();
