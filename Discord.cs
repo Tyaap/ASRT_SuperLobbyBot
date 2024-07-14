@@ -227,16 +227,26 @@ namespace SLB
                         int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);
                         (int mapId, bool mirror) = LobbyTools.GetMapId(lobbyInfo.type, lobbyInfo.matchMode);
                         builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, eventId, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
-                        builder.AddField("Event", LobbyTools.GetEventName(eventId), true);
+
+                        string eventName = LobbyTools.GetEventName(eventId);
+                        if (eventName != null)
+                        {
+                            builder.AddField("Event", eventName, true);
+                        }
+
                         builder.AddField(LobbyTools.GetMapType(eventId), LobbyTools.GetMapName(eventId, mapId, mirror), true);
                         if (lobbyInfo.type == 3)
                         {
-                            builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                            string difficulty = LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty);
+                            if (difficulty != null)
+                            {
+                                builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                            }
                         }
-                        else
-                        {
-                            builder.AddField("\u200B", "\u200B", true);
-                        }
+                        //else
+                        //{
+                        //    builder.AddField("\u200B", "\u200B", true);
+                        //}
                     }
 
                     messages.Add("");
