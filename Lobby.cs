@@ -56,7 +56,7 @@ namespace SLB
 
         public static string GetLobbyType(int lobbyTypeId)
         {
-            return (lobbyTypeId >= 0 && lobbyTypeId <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyTypeId] : null;
+            return (lobbyTypeId >= 0 && lobbyTypeId <= LOBBYTYPES.Length) ? LOBBYTYPES[lobbyTypeId] : "Unknown";
         }
         public static string GetActivity(int state, int eventId, int raceProgress, int countdown)
         {
@@ -185,7 +185,7 @@ namespace SLB
 
         public static string GetEventName(int eventId)
         {
-            return (eventId >= 0 && eventId <= EVENTS.Length) ? EVENTS[eventId] : null;
+            return (eventId >= 0 && eventId <= EVENTS.Length) ? EVENTS[eventId] : "Unknown";
         }
 
         public static string GetMapName(int eventId, int mapId, bool mirror)
@@ -205,7 +205,7 @@ namespace SLB
             if (difficulty >= 0 && difficulty < 4)
                 return DIFFICULTIES[difficulty] + " Class";
             else
-                return null;
+                return "Unknown";
         }
     }
 }

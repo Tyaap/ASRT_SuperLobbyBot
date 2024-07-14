@@ -219,38 +219,22 @@ namespace SLB
 
                     // fields
                     builder.AddField("Players", lobbyInfo.playerCount + "/10", true);
-
-                    string lobbyType = LobbyTools.GetLobbyType(lobbyInfo.type);
-                    if (lobbyType != null)
-                    {
-                        builder.AddField("Type", lobbyType, true);
-                    }
-                    
+                    builder.AddField("Type", LobbyTools.GetLobbyType(lobbyInfo.type), true); 
                     if (lobbyInfo.state >= 0)
                     {
                         int eventId = LobbyTools.GetEventId(lobbyInfo.type, lobbyInfo.matchMode);
                         (int mapId, bool mirror) = LobbyTools.GetMapId(lobbyInfo.type, lobbyInfo.matchMode);
                         builder.AddField("Activity", LobbyTools.GetActivity(lobbyInfo.state, eventId, lobbyInfo.raceProgress, lobbyInfo.countdown), true);
-
-                        string eventName = LobbyTools.GetEventName(eventId);
-                        if (eventName != null)
-                        {
-                            builder.AddField("Event", eventName, true);
-                        }
-
+                        builder.AddField("Event", LobbyTools.GetEventName(eventId), true);
                         builder.AddField(LobbyTools.GetMapType(eventId), LobbyTools.GetMapName(eventId, mapId, mirror), true);
                         if (lobbyInfo.type == 3)
                         {
-                            string difficulty = LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty);
-                            if (difficulty != null)
-                            {
-                                builder.AddField("Difficulty", difficulty, true);
-                            }
+                            builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
                         }
-                        //else
-                        //{
-                        //    builder.AddField("\u200B", "\u200B", true);
-                        //}
+                        else
+                        {
+                            builder.AddField("\u200B", "\u200B", true);
+                        }
                     }
 
                     messages.Add("");
