@@ -28,6 +28,7 @@ namespace SLB
         public const int DAY = 86400;
         public const int WEEK = 604800;
         public const int CALC_INTERVAL = 3600;
+        public static readonly TimeZoneInfo TIMEZONE = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
 
         // environment variables
         private static string ENV_CONNECTION_STR
@@ -278,7 +279,7 @@ namespace SLB
         public static LobbyStats ProcessEntry(DateTime timestamp, List<LobbyInfo> lobbyInfos, bool returnStats = true)
         {
             // program time - used for MM stats
-            var programTime = TimeZoneInfo.ConvertTimeFromUtc(timestamp, Program.TIMEZONE); 
+            var programTime = TimeZoneInfo.ConvertTimeFromUtc(timestamp, TIMEZONE); 
 
             // start date
             if (StartDate == DateTime.MinValue)

@@ -1,37 +1,43 @@
 ﻿using System;
 using System.Threading.Tasks;
 
-namespace SLB
+var tcs = new TaskCompletionSource();
+var sigintReceived = false;
+
+Console.CancelKeyPress += (_, ea) =>
 {
-    static class Program
+    // Tell .NET to not terminate the process
+    ea.Cancel = true;
+    Console.WriteLine("Received SIGINT (Ctrl+C)");
+    tcs.SetResult();
+    sigintReceived = true;
+};
+
+AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+{
+    if (!sigintReceived)
     {
-        public static readonly TimeZoneInfo TIMEZONE = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
-
-        static async Task Main()
-        {
-            Console.WriteLine("Super Lobby Bot: Hello!");
-
-            try
-            {
-                await Web.Start();     
-                Stats.LoadDatasets();
-                await Discord.Start();
-                Steam.Start();
-                await Web.WaitForShutdown();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Main() Exception! \n" + ex);
-            }
-            finally
-            {   
-                Stats.SaveDataset();
-                Steam.Stop();
-                Discord.Stop();
-                Web.Stop();
-            }
-
-            Console.WriteLine("Super Lobby Bot: Goodbye!");
-        }
+        Console.WriteLine("Received SIGTERM");
+        tcs.SetResult();
     }
+
+    SLB.Stats.SaveDataset();
+    SLB.Steam.Stop();
+    SLB.Discord.Stop();
+};
+
+Console.WriteLine("Super Lobby Bot: Hello!");
+
+try
+{
+    SLB.Stats.LoadDatasets();
+    await SLB.Discord.Start();
+    SLB.Steam.Start();
 }
+catch (Exception ex)
+{
+    Console.WriteLine("Main() Exception! \n" + ex);
+}
+
+await tcs.Task;
+Console.WriteLine("Super Lobby Bot: Goodbye!");

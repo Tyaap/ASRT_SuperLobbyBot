@@ -168,13 +168,6 @@ namespace SLB
                 Console.WriteLine("MessageTimerTick() Discord.loggedIn:{0} Steam.loggedIn:{1}", Discord.loggedIn, loggedIn);
                 try
                 {
-                    // web status
-                    Web.message = string.Format(
-                        "Discord logged in: {0}\n" +
-                        "Steam logged in: {1}\n" +
-                        "Super Lobby Bot is {2}",
-                    Discord.loggedIn, loggedIn, Discord.loggedIn && loggedIn ? "working! :)" : "not working! :(");
-
                     DateTime timestamp = DateTime.UtcNow;
                     if (RefreshLobbyInfo().GetAwaiter().GetResult())
                     {
