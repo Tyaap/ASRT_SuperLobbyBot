@@ -42,3 +42,4 @@ loginkey.txt
 sentry.bin
 servers_list.bin
 token.txt
+.env
