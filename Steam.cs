@@ -13,7 +13,7 @@ namespace SLB
         // environment variables
         private static string ENV_STEAM_USER => Environment.GetEnvironmentVariable("STEAM_USER");
         private static string ENV_STEAM_PASS => Environment.GetEnvironmentVariable("STEAM_PASS");
-        private static int ENV_MESSAGE_WAIT => int.Parse(Environment.GetEnvironmentVariable("MESSAGE_WAIT")) * 1000;
+        private static int ENV_MESSAGE_WAIT => int.Parse(Environment.GetEnvironmentVariable("MESSAGE_WAIT") ?? "10") * 1000;
 
         // constants
         public const int APPID = 212480;
@@ -100,7 +100,7 @@ namespace SLB
 
         public static LobbyInfo FindLobbyInfo(ulong id)
         {
-            return Steam.lobbyInfos.Find(x => x.id == id);
+            return lobbyInfos.Find(x => x.id == id);
         }
 
         private static void Login()

@@ -20,10 +20,6 @@ AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         Console.WriteLine("Received SIGTERM");
         tcs.SetResult();
     }
-
-    SLB.Stats.SaveDataset();
-    SLB.Steam.Stop();
-    SLB.Discord.Stop();
 };
 
 Console.WriteLine("Super Lobby Bot: Hello!");
@@ -33,11 +29,17 @@ try
     SLB.Stats.LoadDatasets();
     await SLB.Discord.Start();
     SLB.Steam.Start();
+    await tcs.Task;
 }
 catch (Exception ex)
 {
     Console.WriteLine("Main() Exception! \n" + ex);
 }
+finally
+{
+    SLB.Stats.SaveDataset();
+    SLB.Steam.Stop();
+    SLB.Discord.Stop();
+}
 
-await tcs.Task;
 Console.WriteLine("Super Lobby Bot: Goodbye!");
