@@ -135,50 +135,54 @@ namespace SLB
                 messages.Add(message);
             }
 
-            // Overview message - matchmaking stats
-            EmbedBuilder builder = new EmbedBuilder();
-            builder.WithColor(LOBBY_COLOUR);
-            builder.WithTitle("Matchmaking stats");
-            builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
+            // Matchmaking stats
+            var bestTimes = lobbyStats.MMBestTimes;          
 
-            var bestTimes = lobbyStats.MMBestTimes;
-            var nextOccurances = new List<(long, StatsPoint2)>();
-
-            foreach (var bestTime in bestTimes)
+            if (bestTimes.Length > 0)
             {
-                if (bestTime.Ref == -1)
+                EmbedBuilder builder = new EmbedBuilder();
+                builder.WithColor(LOBBY_COLOUR);
+                builder.WithTitle("Matchmaking stats");
+                builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
+
+                var nextOccurances = new List<(long, StatsPoint2)>();
+
+                foreach (var bestTime in bestTimes)
                 {
-                    continue;
+                    if (bestTime.Ref == -1)
+                    {
+                        continue;
+                    }
+                    nextOccurances.Add((
+                        DatetimeToUnixTime(NextOccurance(timestamp, bestTime.Ref * Stats.BIN_WIDTH + Stats.INTERVAL)), bestTime));
                 }
-                nextOccurances.Add((
-                    DatetimeToUnixTime(NextOccurance(timestamp, bestTime.Ref * Stats.BIN_WIDTH + Stats.INTERVAL)), bestTime));
-            }
-            nextOccurances.Sort((x, y) => x.Item1.CompareTo(y.Item1));
+                nextOccurances.Sort((x, y) => x.Item1.CompareTo(y.Item1));
 
-            string dateList = "";
-            string expList = "";
+                string dateList = "";
+                string expList = "";
 
-            for(int i = 0; i < BEST_TIMES_COUNT & i < nextOccurances.Count; i++)
-            {
-                if (i > 0)
+                for (int i = 0; i < BEST_TIMES_COUNT & i < nextOccurances.Count; i++)
                 {
-                    dateList += "\n";
-                    expList += "\n";
+                    if (i > 0)
+                    {
+                        dateList += "\n";
+                        expList += "\n";
+                    }
+                    var nextOccurance = nextOccurances[i];
+                    dateList += string.Format("<t:{0}:F> - <t:{1}:t>", nextOccurance.Item1 - Stats.INTERVAL, nextOccurance.Item1);
+                    expList += string.Format("{0:0}-{1:0} (mean {2:0.#})",
+                        Math.Floor(nextOccurance.Item2.Min),
+                        Math.Ceiling(nextOccurance.Item2.Max),
+                        nextOccurance.Item2.Avg);
                 }
-                var nextOccurance = nextOccurances[i];
-                dateList += string.Format("<t:{0}:F> - <t:{1}:t>", nextOccurance.Item1 - Stats.INTERVAL, nextOccurance.Item1);
-                expList += string.Format("{0:0}-{1:0} (mean {2:0.#})", 
-                    Math.Floor(nextOccurance.Item2.Min),
-                    Math.Ceiling(nextOccurance.Item2.Max),
-                    nextOccurance.Item2.Avg);
+
+                builder.AddField("Best times to play", dateList, inline: true);
+                builder.AddField("Players (predicted)", expList, inline: true);
+                builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t> — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
+                embeds.Add(builder.Build());
             }
 
-            builder.AddField("Best times to play", dateList, inline: true);
-            builder.AddField("Players (predicted)", expList, inline: true);
-            builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t> — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
-            embeds.Add(builder.Build());
-
-            // Lobby messages
+            // Lobby list
             if (playerCount >= 0)
             {
                 foreach (var lobbyInfo in lobbyInfos)
@@ -188,7 +192,7 @@ namespace SLB
                         continue; // hide this lobby
                     }
 
-                    builder = new EmbedBuilder();
+                    EmbedBuilder builder = new EmbedBuilder();
                     builder.WithColor(LOBBY_COLOUR);
 
                     // title
@@ -240,7 +244,7 @@ namespace SLB
                             string difficulty = LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty);
                             if (difficulty != null)
                             {
-                                builder.AddField("Difficulty", LobbyTools.GetDifficulty(lobbyInfo.type, lobbyInfo.difficulty), true);
+                                builder.AddField("Difficulty", difficulty, true);
                             }
                         }
                         //else
