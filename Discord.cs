@@ -138,26 +138,26 @@ namespace SLB
             // Matchmaking stats
             var bestTimes = lobbyStats.MMBestTimes;          
 
-            if (bestTimes.Length > 0)
+            EmbedBuilder builder = new EmbedBuilder();
+            builder.WithColor(LOBBY_COLOUR);
+            builder.WithTitle("Matchmaking stats");
+            builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
+
+            var nextOccurances = new List<(long, StatsPoint2)>();
+
+            foreach (var bestTime in bestTimes)
             {
-                EmbedBuilder builder = new EmbedBuilder();
-                builder.WithColor(LOBBY_COLOUR);
-                builder.WithTitle("Matchmaking stats");
-                builder.WithDescription(string.Format("Since <t:{0}:d> <t:{0}:t>", DatetimeToUnixTime(lobbyStats.StartDate)));
-
-                var nextOccurances = new List<(long, StatsPoint2)>();
-
-                foreach (var bestTime in bestTimes)
+                if (bestTime.Ref == -1)
                 {
-                    if (bestTime.Ref == -1)
-                    {
-                        continue;
-                    }
-                    nextOccurances.Add((
-                        DatetimeToUnixTime(NextOccurance(timestamp, bestTime.Ref * Stats.BIN_WIDTH + Stats.INTERVAL)), bestTime));
+                    continue;
                 }
-                nextOccurances.Sort((x, y) => x.Item1.CompareTo(y.Item1));
+                nextOccurances.Add((
+                    DatetimeToUnixTime(NextOccurance(timestamp, bestTime.Ref * Stats.BIN_WIDTH + Stats.INTERVAL)), bestTime));
+            }
+            nextOccurances.Sort((x, y) => x.Item1.CompareTo(y.Item1));
 
+            if (nextOccurances.Count > 0)
+            {
                 string dateList = "";
                 string expList = "";
 
@@ -178,9 +178,10 @@ namespace SLB
 
                 builder.AddField("Best times to play", dateList, inline: true);
                 builder.AddField("Players (predicted)", expList, inline: true);
-                builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t> — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
-                embeds.Add(builder.Build());
             }
+            builder.AddField("Most players ever", string.Format("<t:{0}:d> <t:{0}:t> — {1} Players", DatetimeToUnixTime(lobbyStats.MMAllTimeBestDate), lobbyStats.MMAllTimeBestPlayers));
+            embeds.Add(builder.Build());
+            
 
             // Lobby list
             if (playerCount >= 0)
@@ -192,7 +193,7 @@ namespace SLB
                         continue; // hide this lobby
                     }
 
-                    EmbedBuilder builder = new EmbedBuilder();
+                    builder = new EmbedBuilder();
                     builder.WithColor(LOBBY_COLOUR);
 
                     // title
