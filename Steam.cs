@@ -1,9 +1,10 @@
+using SteamKit2;
+using SteamKit2.Authentication;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using SteamKit2;
 using static SLB.Tools;
 
 namespace SLB
@@ -66,7 +67,7 @@ namespace SLB
             manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
 
             // initiate the connection
-            Login();
+            Login().GetAwaiter().GetResult();
 
             // Steam callback timer
             callbackTimer = new(CallbackTimerTick, null, CALLBACK_WAIT, -1);
@@ -103,7 +104,7 @@ namespace SLB
             return lobbyInfos.Find(x => x.id == id);
         }
 
-        private static void Login()
+        private static async Task Login()
         {
             Console.WriteLine("Steam.Login()");
             if (!connected)
@@ -112,10 +113,23 @@ namespace SLB
             }
             else if (!loggedIn)
             {
-                steamUser.LogOn(new SteamUser.LogOnDetails
+
+                var authSession = await steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails
                 {
                     Username = ENV_STEAM_USER,
                     Password = ENV_STEAM_PASS,
+                    IsPersistentSession = false,
+                    Authenticator = new UserConsoleAuthenticator(),
+                });
+
+                // Starting polling Steam for authentication response
+                var pollResponse = await authSession.PollingWaitForResultAsync();
+
+                steamUser.LogOn(new SteamUser.LogOnDetails
+                {
+                    Username = ENV_STEAM_USER,
+                    AccessToken = pollResponse.RefreshToken,
+                    ShouldRememberPassword = false
                 });
             }
         }
@@ -195,7 +209,7 @@ namespace SLB
                         // if not rate limited, try log in
                         else if (DateTime.Now > loginTimeout)
                         {
-                            Login();
+                            Login().GetAwaiter().GetResult();
                         }
                     }
 
@@ -279,7 +293,7 @@ namespace SLB
         {
             Console.WriteLine("Steam.OnConnected()");
             connected = true;
-            Login();
+            Login().GetAwaiter().GetResult();
         }
 
         private static void OnDisconnected(SteamClient.DisconnectedCallback callback)
